@@ -15,6 +15,7 @@ import {
   ReadinessProbeDto,
 } from './dtos/health.dto';
 import { IHealthStatus } from './interfaces/health.interface';
+import { Public } from '../common/decorators/public.decorator';
 
 /**
  * Health Controller
@@ -27,6 +28,7 @@ import { IHealthStatus } from './interfaces/health.interface';
  * - CI/CD pipelines
  * - Health dashboards
  */
+@Public()
 @ApiTags('Health')
 @Controller('health')
 export class HealthController {
@@ -82,6 +84,7 @@ export class HealthController {
    * Returns comprehensive health information including system metrics,
    * memory usage, Node.js version, and environment details.
    */
+  @Public()
   @Get('detailed')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -124,6 +127,7 @@ export class HealthController {
    * Returns comprehensive health status including database connectivity
    * and all system metrics.
    */
+  @Public()
   @Get('full')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -175,6 +179,7 @@ export class HealthController {
    * Returns simple true/false to indicate if the service process is alive.
    * Used by Kubernetes for container liveness checks.
    */
+  @Public()
   @Get('live')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -221,6 +226,7 @@ export class HealthController {
    * Returns true if the service is ready to accept traffic.
    * Used by Kubernetes for load balancer routing decisions.
    */
+  @Public()
   @Get('ready')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
