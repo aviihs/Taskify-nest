@@ -50,7 +50,8 @@ async function bootstrap() {
     swaggerOptions: {
       persistAuthorization: true,
       tryItOutEnabled: true,
-      docExpansion: 'list',
+      // docExpansion: 'list',
+      docExpansion: 'none',
       tagsSorter: 'alpha',
       operationsSorter: 'method',
       defaultModelsExpandDepth: 1,

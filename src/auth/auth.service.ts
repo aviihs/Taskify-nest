@@ -26,27 +26,6 @@ export class AuthService {
     private emailService: EmailService,
   ) {}
 
-  // async register(dto: RegisterDto) {
-  //   const existingUser = await this.usersService.findByEmail(dto.email);
-
-  //   if (existingUser) {
-  //     throw new HttpException('User already exists', HttpStatus.FORBIDDEN);
-  //   }
-
-  //   const user = await this.usersService.addUser(dto);
-
-  //   return {
-  //     message: 'created User successfully',
-  //     timestamp: new Date().toISOString(),
-  //     user: {
-  //       _id: user._id,
-  //       email: user.email,
-  //       userName: user.userName,
-  //       role: user.role,
-  //     },
-  //   };
-  // }
-
   async register(dto: RegisterDto) {
     const existingEmail = await this.usersService.findByEmail(dto.email);
 
