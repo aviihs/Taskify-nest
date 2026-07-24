@@ -36,9 +36,9 @@ async function bootstrap() {
     )
     .addTag('Health', 'Health check and monitoring endpoints')
     .addTag('Auth', 'Authentication endpoints')
-    .addTag('Tasks', 'Task management endpoints')
-    .addTag('Users', 'User management endpoints')
-    .addTag('Database', 'Database management endpoints')
+    // .addTag('Tasks', 'Task management endpoints')
+    // .addTag('Users', 'User management endpoints')
+    // .addTag('Database', 'Database management endpoints')
     .addTag('Root', 'API root endpoint')
     .build();
 
