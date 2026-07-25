@@ -5,6 +5,7 @@ import { UpdateTaskDto } from './interfaces/update-task.dto';
 import { CreateTaskDto } from './interfaces/create-task.dto';
 import { TaskRepository } from './repositories/task.repository';
 import { TaskStatus } from './interfaces/task-status.enum';
+import { TaskPriority } from './interfaces/task-priority.enum';
 
 @Injectable()
 export class TaskService {
@@ -26,7 +27,7 @@ export class TaskService {
       title: dto.title,
       description: dto.description,
       status: dto.status || TaskStatus.TODO,
-      priority: dto.priority,
+      priority: dto.priority || TaskPriority.LOW,
       dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
       assignedTo: dto.assignedTo ? new Types.ObjectId(dto.assignedTo) : null,
       project: dto.project ? new Types.ObjectId(dto.project) : null,
