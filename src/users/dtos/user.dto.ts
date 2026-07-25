@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
+import { IsEmail, IsEnum, IsNotEmpty, IsString } from 'class-validator';
 
 export enum Roles {
   ADMIN = 'ADMIN',
@@ -7,6 +7,13 @@ export enum Roles {
   TEAM_LEAD = 'TEAM_LEAD',
   EMPLOYEE = 'EMPLOYEE',
   USER = 'USER',
+}
+
+export enum Gender {
+  MALE = 'Male',
+  FEMALE = 'Female',
+  OTHER = 'Other',
+  PREFER_NOT_TO_SAY = 'Prefer not to say',
 }
 
 export class User {
@@ -34,6 +41,15 @@ export class User {
   readonly email: string;
 
   @ApiProperty({
+    enum: Gender,
+    example: Gender.MALE,
+    description: 'Gender of the user',
+  })
+  @IsEnum(Gender)
+  @IsNotEmpty()
+  readonly gender: Gender;
+
+  @ApiProperty({
     example: 'shivabhusal',
     description: 'Unique username',
   })
@@ -59,6 +75,7 @@ export class User {
     example: Roles.USER,
     description: 'User role',
   })
+  @IsEnum(Roles)
   readonly role: Roles;
 
   @ApiProperty({
