@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEmail,
+  IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -11,8 +12,16 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-
+export enum Gender {
+  MALE = 'Male',
+  FEMALE = 'Female',
+  OTHER = 'Other',
+  PREFER_NOT_TO_SAY = 'Prefer not to say',
+}
 export class RegisterDto {
+
+
+
   @ApiProperty({
     example: 'Shiva',
     description: 'User first name',
@@ -62,6 +71,15 @@ export class RegisterDto {
   @IsNotEmpty()
   @IsDateString()
   dob: string;
+
+   @ApiProperty({
+      enum: Gender,
+      example: Gender.MALE,
+      description: 'Gender of the user',
+    })
+    @IsEnum(Gender)
+    @IsNotEmpty()
+    gender: Gender;
 
   @ApiProperty({
     example: 'Password@123',
