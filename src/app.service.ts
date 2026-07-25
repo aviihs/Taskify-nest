@@ -2,17 +2,17 @@ import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class AppService {
-  private readonly startedAt = new Date();
+    private readonly startedAt = new Date();
 
-  getHello(): string {
-    return `
+    getHello(): string {
+        return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>🚀 Taskify API</title>
+<link rel="icon" href="/assets/taskify_logo.png" type="image/png">
+<title>Taskify API</title>
 
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
@@ -393,23 +393,23 @@ setInterval(updateUptime, 1000);
 </script>
 </html>
 `;
-  }
-
-  private getUptime(): string {
-    const diff = Date.now() - this.startedAt.getTime();
-
-    const seconds = Math.floor(diff / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-
-    if (hours > 0) {
-      return `${hours}h ${minutes % 60}m`;
     }
 
-    if (minutes > 0) {
-      return `${minutes}m ${seconds % 60}s`;
-    }
+    private getUptime(): string {
+        const diff = Date.now() - this.startedAt.getTime();
 
-    return `${seconds}s`;
-  }
+        const seconds = Math.floor(diff / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const hours = Math.floor(minutes / 60);
+
+        if (hours > 0) {
+            return `${hours}h ${minutes % 60}m`;
+        }
+
+        if (minutes > 0) {
+            return `${minutes}m ${seconds % 60}s`;
+        }
+
+        return `${seconds}s`;
+    }
 }
