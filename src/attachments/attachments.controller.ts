@@ -10,13 +10,14 @@ import {
   Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
+
 import { extname } from 'path';
 import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import GetUser from '../common/decorators/get-user.decorator';
 import { AttachmentsService } from './attachments.service';
+import { diskStorage } from 'multer';
 
 @ApiTags('Attachments')
 @ApiBearerAuth('JWT-auth')

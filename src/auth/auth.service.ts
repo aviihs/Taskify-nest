@@ -61,7 +61,13 @@ export class AuthService {
     await this.emailService.sendMail(
       dto.email,
       'Verify Your Email',
-      `Your verification code is: ${otp}. It will expire in 2 minutes.`,
+      `Your verification code is ${otp}`,
+      `
+    <h2>Taskify Email Verification</h2>
+    <p>Your OTP is:</p>
+    <h1>${otp}</h1>
+    <p>This OTP expires in 2 minutes.</p>
+  `,
     );
 
     return {
@@ -314,41 +320,41 @@ export class AuthService {
   }
 
   async resendOtp(dto: ResendOtpDto) {
-  const user = await this.usersService.findByEmail(dto.email);
+    const user = await this.usersService.findByEmail(dto.email);
 
-  if (!user) {
-    throw new HttpException(
-      'User not found',
-      HttpStatus.NOT_FOUND,
+    if (!user) {
+      throw new HttpException(
+        'User not found',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (user.isEmailVerified) {
+      return {
+        message: 'Email already verified',
+      };
+    }
+
+    const otp = Math.floor(
+      100000 + Math.random() * 900000,
+    ).toString();
+
+    await this.usersService.updateUser(user._id, {
+      emailOtp: otp,
+      emailOtpExpiresAt: new Date(
+        Date.now() + 5 * 60 * 1000,
+      ),
+    });
+
+    await this.emailService.sendMail(
+      user.email,
+      'Verify your email',
+      `Your verification code is ${otp}. It expires in 5 minutes.`,
     );
-  }
 
-  if (user.isEmailVerified) {
     return {
-      message: 'Email already verified',
+      success: true,
+      message: 'OTP sent successfully',
     };
   }
-
-  const otp = Math.floor(
-    100000 + Math.random() * 900000,
-  ).toString();
-
-  await this.usersService.updateUser(user._id, {
-    emailOtp: otp,
-    emailOtpExpiresAt: new Date(
-      Date.now() + 5 * 60 * 1000,
-    ),
-  });
-
-  await this.emailService.sendMail(
-    user.email,
-    'Verify your email',
-    `Your verification code is ${otp}. It expires in 5 minutes.`,
-  );
-
-  return {
-    success: true,
-    message: 'OTP sent successfully',
-  };
-}
 }

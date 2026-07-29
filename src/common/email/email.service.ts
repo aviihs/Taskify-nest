@@ -3,8 +3,6 @@ export class EmailService {
 
   constructor() {
     try {
-      // lazily require nodemailer so builds don't fail if optional dep missing
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const nodemailer = require('nodemailer');
 
       this.transporter = nodemailer.createTransport({
@@ -21,18 +19,24 @@ export class EmailService {
     }
   }
 
-  async sendMail(to: string, subject: string, text: string) {
+  async sendMail(
+    to: string,
+    subject: string,
+    text: string,
+    html?: string,
+  ) {
     try {
       if (!this.transporter) return;
 
       await this.transporter.sendMail({
-        from: process.env.EMAIL_FROM || 'no-reply@taskify.app',
+        from: process.env.EMAIL_FROM,
         to,
         subject,
         text,
+        html,
       });
     } catch (err) {
-      // best-effort: log and continue
+      console.error(err);
     }
   }
 }
