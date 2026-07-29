@@ -56,17 +56,110 @@ export class AuthService {
       emailOtp: otp,
       emailOtpExpiresAt: new Date(Date.now() + 2 * 60 * 1000),
     });
+    console.log("OTP GENERATED:", otp);
+    console.log("EMAIL:", dto.email);
 
-    // send email
     await this.emailService.sendMail(
       dto.email,
-      'Verify Your Email',
-      `Your verification code is ${otp}`,
+      'Verify Your Email - Taskify',
+      `Hello ${dto.firstName}, your Taskify verification code is ${otp}. This code expires in 2 minutes.`,
       `
-    <h2>Taskify Email Verification</h2>
-    <p>Your OTP is:</p>
-    <h1>${otp}</h1>
-    <p>This OTP expires in 2 minutes.</p>
+  <div style="
+    font-family: Arial, sans-serif;
+    background-color: #f4f7fb;
+    padding: 40px 20px;
+  ">
+    <div style="
+      max-width: 500px;
+      margin: auto;
+      background: white;
+      border-radius: 12px;
+      padding: 30px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+      text-align: center;
+    ">
+
+      <h2 style="
+        color: #2563eb;
+        margin-bottom: 10px;
+      ">
+        🚀 Taskify
+      </h2>
+
+      <h3 style="
+        color: #333;
+      ">
+        Email Verification
+      </h3>
+
+      <p style="
+        color: #555;
+        font-size: 15px;
+      ">
+        Hello <b>${dto.firstName}</b>,
+      </p>
+
+      <p style="
+        color: #555;
+        font-size: 15px;
+        line-height: 1.6;
+      ">
+        Thank you for joining Taskify.
+        Please use the verification code below to activate your account.
+      </p>
+
+
+      <div style="
+        background: #eff6ff;
+        border: 2px dashed #2563eb;
+        border-radius: 10px;
+        padding: 20px;
+        margin: 25px 0;
+      ">
+        <h1 style="
+          letter-spacing: 8px;
+          color: #2563eb;
+          margin: 0;
+          font-size: 36px;
+        ">
+          ${otp}
+        </h1>
+      </div>
+
+
+      <p style="
+        color: #777;
+        font-size: 14px;
+      ">
+        ⏳ This verification code will expire in <b>2 minutes</b>.
+      </p>
+
+
+      <p style="
+        color: #999;
+        font-size: 13px;
+        margin-top: 30px;
+      ">
+        If you did not create a Taskify account, you can safely ignore this email.
+      </p>
+
+
+      <hr style="
+        border:none;
+        border-top:1px solid #eee;
+        margin:25px 0;
+      ">
+
+
+      <p style="
+        color:#aaa;
+        font-size:12px;
+      ">
+        © 2026 Taskify. All rights reserved.
+      </p>
+
+    </div>
+  </div>
   `,
     );
 
@@ -342,15 +435,95 @@ export class AuthService {
     await this.usersService.updateUser(user._id, {
       emailOtp: otp,
       emailOtpExpiresAt: new Date(
-        Date.now() + 5 * 60 * 1000,
+        Date.now() + 2 * 60 * 1000,
       ),
     });
 
+    // await this.emailService.sendMail(
+    //   user.email,
+    //   'Verify your email',
+    //   `Your verification code is ${otp}. It expires in 5 minutes.`,
+    // );
+
     await this.emailService.sendMail(
-      user.email,
-      'Verify your email',
-      `Your verification code is ${otp}. It expires in 5 minutes.`,
-    );
+  user.email,
+  'Verify Your Email - Taskify',
+  `Hello ${user.firstName}, your Taskify verification code is ${otp}. This code expires in 5 minutes.`,
+  `
+  <div style="
+    font-family: Arial, sans-serif;
+    background-color: #f4f7fb;
+    padding: 40px 20px;
+  ">
+    <div style="
+      max-width: 500px;
+      margin: auto;
+      background: white;
+      border-radius: 12px;
+      padding: 30px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+      text-align: center;
+    ">
+
+      <h2 style="color:#2563eb;">
+        🚀 Taskify
+      </h2>
+
+      <h3 style="color:#333;">
+        Email Verification
+      </h3>
+
+      <p>
+        Hello <b>${user.firstName}</b>,
+      </p>
+
+      <p style="color:#555;">
+        Here is your new verification code:
+      </p>
+
+      <div style="
+        background:#eff6ff;
+        border:2px dashed #2563eb;
+        border-radius:10px;
+        padding:20px;
+        margin:20px 0;
+      ">
+        <h1 style="
+          color:#2563eb;
+          letter-spacing:8px;
+          margin:0;
+        ">
+          ${otp}
+        </h1>
+      </div>
+
+      <p style="color:#777;">
+        ⏳ This code expires in <b>5 minutes</b>.
+      </p>
+
+      <p style="
+        color:#999;
+        font-size:13px;
+      ">
+        If you didn't request this, ignore this email.
+      </p>
+
+      <hr style="
+        border:none;
+        border-top:1px solid #eee;
+      ">
+
+      <p style="
+        color:#aaa;
+        font-size:12px;
+      ">
+        © 2026 Taskify
+      </p>
+
+    </div>
+  </div>
+  `,
+);
 
     return {
       success: true,
