@@ -8,6 +8,7 @@ import {
   ApiForbiddenResponse,
   ApiUnauthorizedResponse,
   ApiOkResponse,
+  ApiBadRequestResponse,
 } from '@nestjs/swagger';
 
 import { AuthService } from './auth.service';
@@ -21,11 +22,13 @@ import { UseGuards, Request, Delete } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { Public } from '../common/decorators/public.decorator';
 import { RefreshTokenDto } from '../users/dtos/refresh-token.dto';
+import { ResendOtpDto } from '../users/dtos/resend-otp.dto';
+import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Public()
   @Post('register')
@@ -171,5 +174,43 @@ export class AuthController {
   })
   deleteAccount(@Request() req) {
     return this.authService.deleteAccount(req.user);
+  }
+
+  @Public()
+  @Post('verify-email')
+  @ApiOperation({ summary: 'Verify email using OTP' })
+  @ApiBody({ type: VerifyEmailDto })
+  @ApiOkResponse({
+    description: 'Email verified successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Email verified successfully',
+        timestamp: '2026-07-29T12:00:00.000Z',
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid or expired OTP',
+  })
+  verifyEmail(@Body() dto: VerifyEmailDto) {
+    return this.authService.verifyEmail(dto);
+  }
+
+  @Public()
+  @Post('resend-otp')
+  @ApiOperation({ summary: 'Resend email verification OTP' })
+  @ApiBody({ type: ResendOtpDto })
+  @ApiOkResponse({
+    description: 'OTP sent successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'OTP sent successfully',
+      },
+    },
+  })
+  resendOtp(@Body() dto: ResendOtpDto) {
+    return this.authService.resendOtp(dto);
   }
 }

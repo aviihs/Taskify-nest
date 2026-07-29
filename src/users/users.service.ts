@@ -10,7 +10,7 @@ export class UsersService {
   constructor(
     @InjectModel(UserSchemaName)
     private readonly usersModel: Model<User>,
-  ) {}
+  ) { }
 
   async addUser(user: Partial<User>) {
     const newUser = new this.usersModel(user);
@@ -123,6 +123,27 @@ export class UsersService {
     return await this.usersModel.findByIdAndUpdate(
       userId,
       { avatar: avatarPath },
+      { new: true },
+    );
+  }
+
+  async verifyEmail(email: string, otp: string) {
+    return await this.usersModel.findOne({
+      email,
+      emailOtp: otp,
+      emailOtpExpiresAt: { $gt: new Date() },
+      isDeleted: false,
+    });
+  }
+
+  async markEmailVerified(userId: any) {
+    return await this.usersModel.findByIdAndUpdate(
+      userId,
+      {
+        isEmailVerified: true,
+        emailOtp: null,
+        emailOtpExpiresAt: null,
+      },
       { new: true },
     );
   }

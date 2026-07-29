@@ -17,6 +17,8 @@ import * as crypto from 'crypto';
 import { EmailService } from '../common/email/email.service';
 import { Roles } from '../users/dtos/user.dto';
 import { RefreshTokenDto } from '../users/dtos/refresh-token.dto';
+import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
+import { ResendOtpDto } from '../users/dtos/resend-otp.dto';
 
 @Injectable()
 export class AuthService {
@@ -24,7 +26,7 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private emailService: EmailService,
-  ) {}
+  ) { }
 
   async register(dto: RegisterDto) {
     const existingEmail = await this.usersService.findByEmail(dto.email);
@@ -43,17 +45,28 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(dto.password, 12);
 
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
     const user = await this.usersService.addUser({
       ...dto,
       password: hashedPassword,
       role: Roles.USER,
       isActive: true,
       isEmailVerified: false,
+      emailOtp: otp,
+      emailOtpExpiresAt: new Date(Date.now() + 2 * 60 * 1000),
     });
+
+    // send email
+    await this.emailService.sendMail(
+      dto.email,
+      'Verify Your Email',
+      `Your verification code is: ${otp}. It will expire in 2 minutes.`,
+    );
 
     return {
       success: true,
-      message: 'User registered successfully',
+      message: 'User registered successfully,',
       data: {
         _id: user._id,
         firstName: user.firstName,
@@ -71,7 +84,7 @@ export class AuthService {
   }
 
 
-  
+
   // async login(dto: LoginDto): Promise<{ accessToken: string }> {
   async login(dto: LoginDto): Promise<{
     success: boolean;
@@ -81,7 +94,34 @@ export class AuthService {
     user: any;
     timestamp: string;
   }> {
+
     const result = await this.usersService.findByEmail(dto.email);
+
+    if (!result) {
+      throw new HttpException(
+        'Invalid credentials',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    if (!result.isEmailVerified) {
+      throw new HttpException(
+        'Please verify your email first.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const passwordMatched = await bcrypt.compare(
+      dto.password,
+      result.password,
+    );
+
+    if (!passwordMatched) {
+      throw new HttpException(
+        'Invalid credentials',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
 
     if (result && (await bcrypt.compare(dto.password, result.password))) {
       const payload = {
@@ -183,9 +223,8 @@ export class AuthService {
 
     await this.usersService.setPasswordResetToken(dto.email, token, expires);
 
-    const resetLink = `${
-      process.env.FRONTEND_URL || 'http://localhost:3000'
-    }/reset-password?token=${token}`;
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'
+      }/reset-password?token=${token}`;
 
     // send email (best-effort)
     await this.emailService.sendMail(
@@ -251,4 +290,65 @@ export class AuthService {
       timestamp: new Date().toISOString(),
     };
   }
+
+  async verifyEmail(dto: VerifyEmailDto) {
+    const user = await this.usersService.verifyEmail(
+      dto.email,
+      dto.otp,
+    );
+
+    if (!user) {
+      throw new HttpException(
+        'Invalid or expired OTP',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    await this.usersService.markEmailVerified(user._id);
+
+    return {
+      success: true,
+      message: 'Email verified successfully',
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  async resendOtp(dto: ResendOtpDto) {
+  const user = await this.usersService.findByEmail(dto.email);
+
+  if (!user) {
+    throw new HttpException(
+      'User not found',
+      HttpStatus.NOT_FOUND,
+    );
+  }
+
+  if (user.isEmailVerified) {
+    return {
+      message: 'Email already verified',
+    };
+  }
+
+  const otp = Math.floor(
+    100000 + Math.random() * 900000,
+  ).toString();
+
+  await this.usersService.updateUser(user._id, {
+    emailOtp: otp,
+    emailOtpExpiresAt: new Date(
+      Date.now() + 5 * 60 * 1000,
+    ),
+  });
+
+  await this.emailService.sendMail(
+    user.email,
+    'Verify your email',
+    `Your verification code is ${otp}. It expires in 5 minutes.`,
+  );
+
+  return {
+    success: true,
+    message: 'OTP sent successfully',
+  };
+}
 }

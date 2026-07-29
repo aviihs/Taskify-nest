@@ -136,4 +136,18 @@ export class User {
     description: 'MongoDB ObjectId',
   })
   readonly id: string;
+
+  @ApiProperty({
+    example: '123456',
+    required: false,
+    description: 'Email verification OTP',
+  })
+  readonly emailOtp?: string;
+
+  @ApiProperty({
+    example: '2026-07-28T10:30:00.000Z',
+    required: false,
+    description: 'Email OTP expiry time',
+  })
+  readonly emailOtpExpiresAt?: Date;
 }

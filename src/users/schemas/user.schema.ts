@@ -89,6 +89,16 @@ export const UserSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    emailOtp: {
+      type: String,
+      default: null,
+    },
+
+    emailOtpExpiresAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
