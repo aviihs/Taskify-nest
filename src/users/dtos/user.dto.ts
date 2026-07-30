@@ -83,6 +83,20 @@ export class User {
   readonly avatar?: string;
 
   @ApiProperty({
+    example: 'Hi, my name is Shiva Bhusal.',
+    description: 'User bio',
+    required: false,
+  })
+  readonly bio?: string;
+
+  @ApiProperty({
+    example: '9812345678',
+    description: 'Phone number',
+    required: false,
+  })
+  readonly phone?: number;
+
+  @ApiProperty({
     example: true,
     description: 'Account active status',
   })

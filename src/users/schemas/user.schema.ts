@@ -59,6 +59,14 @@ export const UserSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    bio: {
+      type: String,
+      default: null,
+    },
+    phone: {
+      type: String,
+      default: null,
+    },
 
     isActive: {
       type: Boolean,

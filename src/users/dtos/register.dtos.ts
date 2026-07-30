@@ -4,6 +4,7 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsMobilePhone,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -117,4 +118,17 @@ export class RegisterDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'Hi, my name is Shiva Bhusal.',
+  })
+  @IsOptional()
+  bio?: string;
+
+  @ApiPropertyOptional({
+    example: 9812345678,
+  })
+  @IsOptional()
+  @IsMobilePhone()
+  phone?: number;
 }
