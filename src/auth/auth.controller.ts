@@ -216,9 +216,46 @@ export class AuthController {
   resendOtp(@Body() dto: ResendOtpDto) {
     return this.authService.resendOtp(dto);
   }
+
   @UseGuards(JwtAuthGuard)
   @Put('profile')
   @ApiOperation({ summary: 'Update user profile' })
+  @ApiBody({ type: UpdateProfileDto })
+  @ApiOkResponse({
+    description: 'Profile updated successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Profile updated successfully',
+        data: {
+          _id: '684efb1f4db4d8f5e98b1234',
+          avatar: 'https://example.com/avatar.png',
+          isActive: true,
+          updatedAt: '2026-07-30T08:45:12.123Z',
+        },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Unauthorized',
+    schema: {
+      example: {
+        statusCode: 401,
+        message: 'Unauthorized',
+        error: 'Unauthorized',
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid request',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: ['avatar must be a string'],
+        error: 'Bad Request',
+      },
+    },
+  })
   updateProfile(
     @Request() req,
     @Body() dto: UpdateProfileDto,

@@ -64,22 +64,24 @@ export class RegisterDto {
   })
   userName: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: '2002-08-15',
     description: 'Date of birth',
   })
   @IsNotEmpty()
+  @IsOptional()
   @IsDateString()
   dob: string;
 
-   @ApiProperty({
-      enum: Gender,
-      example: Gender.MALE,
-      description: 'Gender of the user',
-    })
-    @IsEnum(Gender)
-    @IsNotEmpty()
-    gender: Gender;
+  @ApiPropertyOptional({
+    enum: Gender,
+    example: Gender.MALE,
+    description: 'Gender of the user',
+  })
+  @IsOptional()
+  @IsEnum(Gender)
+  @IsNotEmpty()
+  gender: Gender;
 
   @ApiProperty({
     example: 'Password@123',
@@ -98,7 +100,10 @@ export class RegisterDto {
   )
   password: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    example: 'https://example.com/avatar.jpg',
+    description: 'User avatar URL',
+  })
   @IsOptional()
   @IsUrl()
   avatar?: string;
