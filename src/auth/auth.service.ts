@@ -19,6 +19,9 @@ import { Roles } from '../users/dtos/user.dto';
 import { RefreshTokenDto } from '../users/dtos/refresh-token.dto';
 import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
 import { ResendOtpDto } from '../users/dtos/resend-otp.dto';
+import { UpdateProjectDto } from '../project/dtos/update-project.dto';
+import { UpdateUserDto } from '../users/dtos/update-user.dto';
+import { UpdateProfileDto } from '../users/dtos/update-profile.dto';
 
 @Injectable()
 export class AuthService {
@@ -446,10 +449,10 @@ export class AuthService {
     // );
 
     await this.emailService.sendMail(
-  user.email,
-  'Verify Your Email - Taskify',
-  `Hello ${user.firstName}, your Taskify verification code is ${otp}. This code expires in 5 minutes.`,
-  `
+      user.email,
+      'Verify Your Email - Taskify',
+      `Hello ${user.firstName}, your Taskify verification code is ${otp}. This code expires in 5 minutes.`,
+      `
   <div style="
     font-family: Arial, sans-serif;
     background-color: #f4f7fb;
@@ -523,11 +526,40 @@ export class AuthService {
     </div>
   </div>
   `,
-);
+    );
 
     return {
       success: true,
       message: 'OTP sent successfully',
+    };
+  }
+  async updateProfile(user: any, dto: UpdateProfileDto) {
+    const existing = await this.usersService.findById(user.id);
+
+    if (!existing) {
+      throw new HttpException(
+        'User not found',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    await this.usersService.updateUser(existing._id, {
+      avatar: dto.avatar,
+      isActive: dto.isActive,
+    });
+
+    const updatedUser = await this.usersService.findById(existing._id);
+
+
+    return {
+      success: true,
+      message: 'Profile updated successfully',
+      data: {
+        _id: updatedUser._id,
+        avatar: updatedUser.avatar,
+        isActive: updatedUser.isActive,
+        updatedAt: updatedUser.updatedAt,
+      },
     };
   }
 }

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { User } from './dtos/user.dto';
 import { UserSchemaName } from './schemas/user.schema';
 import { RegisterDto } from './dtos/register.dtos';
@@ -26,7 +26,7 @@ export class UsersService {
     return await this.usersModel.findOne({ userName, isDeleted: false });
   }
 
-  async findById(id: string) {
+  async findById(id: string | Types.ObjectId) {
     return await this.usersModel.findOne({ _id: id, isDeleted: false });
   }
 
@@ -77,10 +77,15 @@ export class UsersService {
     );
   }
 
-  async updateUser(userId: any, update: Partial<any>) {
-    return await this.usersModel.findByIdAndUpdate(userId, update, {
-      new: true,
-    });
+  async updateUser(
+    userId: string | Types.ObjectId,
+    update: Partial<User>,
+  ) {
+    return await this.usersModel.findByIdAndUpdate(
+      userId,
+      update,
+      { new: true },
+    );
   }
 
   async listUsers(query: {

@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, Put } from '@nestjs/common';
 
 import {
   ApiTags,
@@ -24,6 +24,9 @@ import { Public } from '../common/decorators/public.decorator';
 import { RefreshTokenDto } from '../users/dtos/refresh-token.dto';
 import { ResendOtpDto } from '../users/dtos/resend-otp.dto';
 import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
+import { UpdateProjectDto } from '../project/dtos/update-project.dto';
+import { UpdateUserDto } from '../users/dtos/update-user.dto';
+import { UpdateProfileDto } from '../users/dtos/update-profile.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -212,5 +215,14 @@ export class AuthController {
   })
   resendOtp(@Body() dto: ResendOtpDto) {
     return this.authService.resendOtp(dto);
+  }
+  @UseGuards(JwtAuthGuard)
+  @Put('profile')
+  @ApiOperation({ summary: 'Update user profile' })
+  updateProfile(
+    @Request() req,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.authService.updateProfile(req.user, dto);
   }
 }
