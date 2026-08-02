@@ -1,8 +1,9 @@
 import {
-  HttpException,
-  HttpStatus,
   Injectable,
   ConflictException,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
@@ -29,18 +30,19 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private emailService: EmailService,
-  ) { }
+  ) {}
 
   async register(dto: RegisterDto) {
-    const existingEmail = await this.usersService.findByEmail(dto.email);
+    const email = dto.email.trim().toLowerCase();
+    const userName = dto.userName.trim();
+
+    const existingEmail = await this.usersService.findByEmail(email);
 
     if (existingEmail) {
       throw new ConflictException('Email already exists');
     }
 
-    const existingUserName = await this.usersService.findByUserName(
-      dto.userName,
-    );
+    const existingUserName = await this.usersService.findByUserName(userName);
 
     if (existingUserName) {
       throw new ConflictException('Username already exists');
@@ -50,23 +52,39 @@ export class AuthService {
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    const user = await this.usersService.addUser({
-      ...dto,
-      password: hashedPassword,
-      role: Roles.USER,
-      isActive: true,
-      isEmailVerified: false,
-      emailOtp: otp,
-      emailOtpExpiresAt: new Date(Date.now() + 2 * 60 * 1000),
-    });
-    console.log("OTP GENERATED:", otp);
-    console.log("EMAIL:", dto.email);
+    let user;
+    try {
+      user = await this.usersService.addUser({
+        ...dto,
+        email,
+        userName,
+        password: hashedPassword,
+        role: Roles.USER,
+        isActive: true,
+        isEmailVerified: false,
+        emailOtp: otp,
+        emailOtpExpiresAt: new Date(Date.now() + 2 * 60 * 1000),
+      });
+    } catch (error) {
+      if (error?.code === 11000) {
+        const duplicateField = Object.keys(error.keyPattern ?? {})[0];
+        throw new ConflictException(
+          duplicateField === 'userName'
+            ? 'Username already exists'
+            : 'Email already exists',
+        );
+      }
+      throw error;
+    }
+    console.log('OTP GENERATED:', otp);
+    console.log('EMAIL:', email);
 
-    this.emailService.sendMail(
-      dto.email,
-      'Verify Your Email - Taskify',
-      `Hello ${dto.firstName}, your Taskify verification code is ${otp}. This code expires in 2 minutes.`,
-      `
+    this.emailService
+      .sendMail(
+        email,
+        'Verify Your Email - Taskify',
+        `Hello ${dto.firstName}, your Taskify verification code is ${otp}. This code expires in 2 minutes.`,
+        `
   <div style="
     font-family: Arial, sans-serif;
     background-color: #f4f7fb;
@@ -164,7 +182,8 @@ export class AuthService {
     </div>
   </div>
   `,
-    ).catch((err) => console.error('Register email send failed:', err));
+      )
+      .catch((err) => console.error('Register email send failed:', err));
 
     return {
       success: true,
@@ -185,8 +204,6 @@ export class AuthService {
     };
   }
 
-
-
   // async login(dto: LoginDto): Promise<{ accessToken: string }> {
   async login(dto: LoginDto): Promise<{
     success: boolean;
@@ -196,33 +213,22 @@ export class AuthService {
     user: any;
     timestamp: string;
   }> {
-
-    const result = await this.usersService.findByEmail(dto.email);
+    const result = await this.usersService.findByEmail(
+      dto.email.trim().toLowerCase(),
+    );
 
     if (!result) {
-      throw new HttpException(
-        'Invalid credentials',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
     }
 
     if (!result.isEmailVerified) {
-      throw new HttpException(
-        'Please verify your email first.',
-        HttpStatus.FORBIDDEN,
-      );
+      throw new ForbiddenException('Please verify your email first.');
     }
 
-    const passwordMatched = await bcrypt.compare(
-      dto.password,
-      result.password,
-    );
+    const passwordMatched = await bcrypt.compare(dto.password, result.password);
 
     if (!passwordMatched) {
-      throw new HttpException(
-        'Invalid credentials',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
     }
 
     if (result && (await bcrypt.compare(dto.password, result.password))) {
@@ -330,11 +336,12 @@ export class AuthService {
     await this.usersService.setPasswordResetToken(dto.email, otp, expires);
 
     // send email (best-effort, non-blocking)
-    this.emailService.sendMail(
-      user.email,
-      'Password Reset OTP - Taskify',
-      `Hello ${user.firstName}, your password reset code is ${otp}. This code expires in 5 minutes.`,
-      `
+    this.emailService
+      .sendMail(
+        user.email,
+        'Password Reset OTP - Taskify',
+        `Hello ${user.firstName}, your password reset code is ${otp}. This code expires in 5 minutes.`,
+        `
   <div style="
     font-family: Arial, sans-serif;
     background-color: #f4f7fb;
@@ -380,8 +387,9 @@ export class AuthService {
       </p>
     </div>
   </div>
-      `
-    ).catch(err => console.error("Forgot password email send error:", err));
+      `,
+      )
+      .catch((err) => console.error('Forgot password email send error:', err));
 
     return { success: true, message: 'OTP sent to your email successfully' };
   }
@@ -390,10 +398,7 @@ export class AuthService {
     const user = await this.usersService.findByPasswordResetToken(dto.token);
 
     if (!user) {
-      throw new HttpException(
-        'Invalid or expired OTP',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new HttpException('Invalid or expired OTP', HttpStatus.BAD_REQUEST);
     }
 
     const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
@@ -443,16 +448,10 @@ export class AuthService {
   }
 
   async verifyEmail(dto: VerifyEmailDto) {
-    const user = await this.usersService.verifyEmail(
-      dto.email,
-      dto.otp,
-    );
+    const user = await this.usersService.verifyEmail(dto.email, dto.otp);
 
     if (!user) {
-      throw new HttpException(
-        'Invalid or expired OTP',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new HttpException('Invalid or expired OTP', HttpStatus.BAD_REQUEST);
     }
 
     await this.usersService.markEmailVerified(user._id);
@@ -468,10 +467,7 @@ export class AuthService {
     const user = await this.usersService.findByEmail(dto.email);
 
     if (!user) {
-      throw new HttpException(
-        'User not found',
-        HttpStatus.NOT_FOUND,
-      );
+      throw new HttpException('User not found', HttpStatus.NOT_FOUND);
     }
 
     if (user.isEmailVerified) {
@@ -480,15 +476,11 @@ export class AuthService {
       };
     }
 
-    const otp = Math.floor(
-      100000 + Math.random() * 900000,
-    ).toString();
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
     await this.usersService.updateUser(user._id, {
       emailOtp: otp,
-      emailOtpExpiresAt: new Date(
-        Date.now() + 2 * 60 * 1000,
-      ),
+      emailOtpExpiresAt: new Date(Date.now() + 2 * 60 * 1000),
     });
 
     // await this.emailService.sendMail(
@@ -497,11 +489,12 @@ export class AuthService {
     //   `Your verification code is ${otp}. It expires in 5 minutes.`,
     // );
 
-    this.emailService.sendMail(
-      user.email,
-      'Verify Your Email - Taskify',
-      `Hello ${user.firstName}, your Taskify verification code is ${otp}. This code expires in 5 minutes.`,
-      `
+    this.emailService
+      .sendMail(
+        user.email,
+        'Verify Your Email - Taskify',
+        `Hello ${user.firstName}, your Taskify verification code is ${otp}. This code expires in 5 minutes.`,
+        `
   <div style="
     font-family: Arial, sans-serif;
     background-color: #f4f7fb;
@@ -575,7 +568,8 @@ export class AuthService {
     </div>
   </div>
   `,
-    ).catch(err => console.error("Resend OTP email send error:", err));
+      )
+      .catch((err) => console.error('Resend OTP email send error:', err));
 
     return {
       success: true,
@@ -586,10 +580,7 @@ export class AuthService {
     const existing = await this.usersService.findById(user.id);
 
     if (!existing) {
-      throw new HttpException(
-        'User not found',
-        HttpStatus.NOT_FOUND,
-      );
+      throw new HttpException('User not found', HttpStatus.NOT_FOUND);
     }
 
     await this.usersService.updateUser(existing._id, {
@@ -598,7 +589,6 @@ export class AuthService {
     });
 
     const updatedUser = await this.usersService.findById(existing._id);
-
 
     return {
       success: true,

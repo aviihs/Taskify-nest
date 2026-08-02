@@ -1,4 +1,4 @@
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
@@ -8,12 +8,25 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const logger = new Logger('Bootstrap');
 
+  app.enableCors({
+    origin: true,
+    credentials: true,
+  });
+
   // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: true,
+      exceptionFactory: (errors) => {
+        const messages = errors.flatMap((error) =>
+          Object.values(error.constraints ?? {}),
+        );
+        return new BadRequestException(
+          messages.length ? messages : 'Invalid request payload',
+        );
+      },
     }),
   );
 
@@ -56,12 +69,13 @@ async function bootstrap() {
     },
   });
 
-  await app.listen(env.port);
-  logger.log(`✓ Application is running on http://localhost:${env.port}`);
+  const port = env.port || 3000;
+  await app.listen(port, '0.0.0.0');
+  logger.log(`✓ Application is running on http://localhost:${port}`);
   logger.log(
-    `✓ Swagger documentation available at http://localhost:${env.port}/api`,
+    `✓ Swagger documentation available at http://localhost:${port}/api`,
   );
-  logger.log(`✓ Health check available at http://localhost:${env.port}/health`);
+  logger.log(`✓ Health check available at http://localhost:${port}/health`);
 }
 bootstrap();
 
