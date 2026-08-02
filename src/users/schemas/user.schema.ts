@@ -34,7 +34,8 @@ export const UserSchema = new mongoose.Schema(
 
     dob: {
       type: String,
-      required: true,
+      required: false,
+      default: null,
     },
 
     userName: {
