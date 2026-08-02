@@ -125,6 +125,18 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @ApiOperation({ summary: 'Refresh access token' })
+  @ApiBody({ type: RefreshTokenDto })
+  @ApiOkResponse({
+    description: 'Token refreshed successfully',
+    schema: {
+      example: {
+        message: 'Token refreshed',
+        accessToken: 'eyJhbGciOiJIUzI1Ni...',
+        refreshToken: 'eyJhbGciOiJIUzI1Ni...',
+        timestamp: '2026-07-23T18:30:00.000Z',
+      },
+    },
+  })
   refresh(@Body() dto: RefreshTokenDto) {
     return this.authService.refresh(dto);
   }
@@ -132,20 +144,50 @@ export class AuthController {
   @Public()
   @Post('logout')
   @ApiOperation({ summary: 'Logout user (invalidate refresh token)' })
+  @ApiBody({ type: RefreshTokenDto })
+  @ApiOkResponse({
+    description: 'Logged out successfully',
+    schema: {
+      example: {
+        message: 'Logged out successfully',
+        timestamp: '2026-07-23T18:30:00.000Z',
+      },
+    },
+  })
   logout(@Body() dto: RefreshTokenDto) {
     return this.authService.logout(dto);
   }
 
   @Public()
   @Post('forgot-password')
-  @ApiOperation({ summary: 'Request password reset link' })
+  @ApiOperation({ summary: 'Request password reset OTP' })
+  @ApiBody({ type: ForgotPasswordDto })
+  @ApiOkResponse({
+    description: 'OTP sent to email successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'OTP sent to your email successfully',
+      },
+    },
+  })
   forgot(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto);
   }
 
   @Public()
   @Post('reset-password')
-  @ApiOperation({ summary: 'Reset password using token' })
+  @ApiOperation({ summary: 'Reset password using OTP' })
+  @ApiBody({ type: ResetPasswordDto })
+  @ApiOkResponse({
+    description: 'Password reset successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Password reset successfully',
+      },
+    },
+  })
   reset(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
   }
@@ -153,6 +195,15 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Post('change-password')
   @ApiOperation({ summary: 'Change password (authenticated)' })
+  @ApiBody({ type: ChangePasswordDto })
+  @ApiOkResponse({
+    description: 'Password changed successfully',
+    schema: {
+      example: {
+        message: 'Password changed successfully',
+      },
+    },
+  })
   change(@Request() req, @Body() dto: ChangePasswordDto) {
     return this.authService.changePassword(req.user, dto);
   }

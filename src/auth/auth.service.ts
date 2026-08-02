@@ -62,7 +62,7 @@ export class AuthService {
     console.log("OTP GENERATED:", otp);
     console.log("EMAIL:", dto.email);
 
-    await this.emailService.sendMail(
+    this.emailService.sendMail(
       dto.email,
       'Verify Your Email - Taskify',
       `Hello ${dto.firstName}, your Taskify verification code is ${otp}. This code expires in 2 minutes.`,
@@ -164,7 +164,7 @@ export class AuthService {
     </div>
   </div>
   `,
-    );
+    ).catch((err) => console.error('Register email send failed:', err));
 
     return {
       success: true,
@@ -318,26 +318,72 @@ export class AuthService {
     const user = await this.usersService.findByEmail(dto.email);
 
     if (!user) {
-      // don't reveal that the email is not registered
-      return { message: 'If the email exists, a reset link has been sent' };
+      throw new HttpException(
+        'User with this email not found',
+        HttpStatus.NOT_FOUND,
+      );
     }
 
-    const token = crypto.randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 1000 * 60 * 60); // 1 hour
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    await this.usersService.setPasswordResetToken(dto.email, token, expires);
+    await this.usersService.setPasswordResetToken(dto.email, otp, expires);
 
-    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'
-      }/reset-password?token=${token}`;
-
-    // send email (best-effort)
-    await this.emailService.sendMail(
+    // send email (best-effort, non-blocking)
+    this.emailService.sendMail(
       user.email,
-      'Password Reset - Taskify',
-      `Click the link to reset your password: ${resetLink}`,
-    );
+      'Password Reset OTP - Taskify',
+      `Hello ${user.firstName}, your password reset code is ${otp}. This code expires in 5 minutes.`,
+      `
+  <div style="
+    font-family: Arial, sans-serif;
+    background-color: #f4f7fb;
+    padding: 40px 20px;
+  ">
+    <div style="
+      max-width: 500px;
+      margin: auto;
+      background: white;
+      border-radius: 12px;
+      padding: 30px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+      text-align: center;
+    ">
+      <h2 style="color: #2563eb; margin-bottom: 10px;">🚀 Taskify</h2>
+      <h3 style="color: #333;">Password Reset Verification</h3>
+      <p style="color: #555; font-size: 15px;">
+        Hello <b>${user.firstName}</b>,
+      </p>
+      <p style="color: #555; font-size: 15px; line-height: 1.6;">
+        Please use the verification code below to reset your password.
+      </p>
+      <div style="
+        background: #eff6ff;
+        border: 2px dashed #2563eb;
+        border-radius: 10px;
+        padding: 20px;
+        margin: 25px 0;
+      ">
+        <h1 style="letter-spacing: 8px; color: #2563eb; margin: 0; font-size: 36px;">
+          ${otp}
+        </h1>
+      </div>
+      <p style="color: #777; font-size: 14px;">
+        ⏳ This verification code will expire in <b>5 minutes</b>.
+      </p>
+      <p style="color: #999; font-size: 13px; margin-top: 30px;">
+        If you did not request a password reset, you can safely ignore this email.
+      </p>
+      <hr style="border:none; border-top:1px solid #eee; margin:25px 0;">
+      <p style="color:#aaa; font-size:12px;">
+        © 2026 Taskify. All rights reserved.
+      </p>
+    </div>
+  </div>
+      `
+    ).catch(err => console.error("Forgot password email send error:", err));
 
-    return { message: 'If the email exists, a reset link has been sent' };
+    return { success: true, message: 'OTP sent to your email successfully' };
   }
 
   async resetPassword(dto: ResetPasswordDto) {
@@ -345,14 +391,15 @@ export class AuthService {
 
     if (!user) {
       throw new HttpException(
-        'Invalid or expired reset token',
+        'Invalid or expired OTP',
         HttpStatus.BAD_REQUEST,
       );
     }
 
-    await this.usersService.resetPassword(user._id, dto.newPassword);
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
+    await this.usersService.resetPassword(user._id, hashedPassword);
 
-    return { message: 'Password reset successfully' };
+    return { success: true, message: 'Password reset successfully' };
   }
 
   async changePassword(user: any, dto: ChangePasswordDto) {
@@ -450,7 +497,7 @@ export class AuthService {
     //   `Your verification code is ${otp}. It expires in 5 minutes.`,
     // );
 
-    await this.emailService.sendMail(
+    this.emailService.sendMail(
       user.email,
       'Verify Your Email - Taskify',
       `Hello ${user.firstName}, your Taskify verification code is ${otp}. This code expires in 5 minutes.`,
@@ -528,7 +575,7 @@ export class AuthService {
     </div>
   </div>
   `,
-    );
+    ).catch(err => console.error("Resend OTP email send error:", err));
 
     return {
       success: true,
