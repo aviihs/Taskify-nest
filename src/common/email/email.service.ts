@@ -1,10 +1,32 @@
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
+
+@Injectable()
 export class EmailService {
+  private readonly logger = new Logger(EmailService.name);
   private transporter: any;
 
-
-
   constructor() {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const nodemailer = require('nodemailer');
+
+    const missingConfig = [
+      'SMTP_HOST',
+      'SMTP_PORT',
+      'SMTP_USER',
+      'SMTP_PASS',
+      'EMAIL_FROM',
+    ].filter((key) => !process.env[key]);
+
+    if (missingConfig.length) {
+      this.logger.warn(
+        `SMTP not configured. Missing: ${missingConfig.join(', ')}`,
+      );
+      return;
+    }
 
     this.transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
@@ -18,9 +40,9 @@ export class EmailService {
 
     this.transporter.verify((error, success) => {
       if (error) {
-        console.log('SMTP ERROR:', error);
+        this.logger.error('SMTP verification failed', error);
       } else {
-        console.log('SMTP SERVER READY');
+        this.logger.log('SMTP server ready');
       }
     });
   }
@@ -30,23 +52,23 @@ export class EmailService {
     subject: string,
     text: string,
     html?: string,
-  ) {
-    try {
-      if (!this.transporter) return;
+  ): Promise<void> {
+    if (!this.transporter) {
+      throw new InternalServerErrorException('SMTP is not configured');
+    }
 
-      await this.transporter.sendMail({
+    try {
+      const info = await this.transporter.sendMail({
         from: process.env.EMAIL_FROM,
         to,
         subject,
         text,
         html,
       });
+      this.logger.log(`Email sent to ${to}: ${info.messageId}`);
     } catch (err) {
-      console.error('Email Service Error:', err);
-      // Log the full error response
-      if (err.response) {
-        console.error('Response:', err.response);
-      }
+      this.logger.error(`Email send failed to ${to}`, err);
+      throw new InternalServerErrorException('Failed to send email');
     }
   }
 }

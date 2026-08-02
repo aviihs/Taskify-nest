@@ -79,12 +79,11 @@ export class AuthService {
     console.log('OTP GENERATED:', otp);
     console.log('EMAIL:', email);
 
-    this.emailService
-      .sendMail(
-        email,
-        'Verify Your Email - Taskify',
-        `Hello ${dto.firstName}, your Taskify verification code is ${otp}. This code expires in 2 minutes.`,
-        `
+    await this.emailService.sendMail(
+      email,
+      'Verify Your Email - Taskify',
+      `Hello ${dto.firstName}, your Taskify verification code is ${otp}. This code expires in 2 minutes.`,
+      `
   <div style="
     font-family: Arial, sans-serif;
     background-color: #f4f7fb;
@@ -182,8 +181,7 @@ export class AuthService {
     </div>
   </div>
   `,
-      )
-      .catch((err) => console.error('Register email send failed:', err));
+    );
 
     return {
       success: true,
