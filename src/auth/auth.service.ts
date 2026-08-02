@@ -333,13 +333,11 @@ export class AuthService {
 
     await this.usersService.setPasswordResetToken(dto.email, otp, expires);
 
-    // send email (best-effort, non-blocking)
-    this.emailService
-      .sendMail(
-        user.email,
-        'Password Reset OTP - Taskify',
-        `Hello ${user.firstName}, your password reset code is ${otp}. This code expires in 5 minutes.`,
-        `
+    await this.emailService.sendMail(
+      user.email,
+      'Password Reset OTP - Taskify',
+      `Hello ${user.firstName}, your password reset code is ${otp}. This code expires in 5 minutes.`,
+      `
   <div style="
     font-family: Arial, sans-serif;
     background-color: #f4f7fb;
@@ -386,8 +384,7 @@ export class AuthService {
     </div>
   </div>
       `,
-      )
-      .catch((err) => console.error('Forgot password email send error:', err));
+    );
 
     return { success: true, message: 'OTP sent to your email successfully' };
   }
@@ -487,12 +484,11 @@ export class AuthService {
     //   `Your verification code is ${otp}. It expires in 5 minutes.`,
     // );
 
-    this.emailService
-      .sendMail(
-        user.email,
-        'Verify Your Email - Taskify',
-        `Hello ${user.firstName}, your Taskify verification code is ${otp}. This code expires in 5 minutes.`,
-        `
+    await this.emailService.sendMail(
+      user.email,
+      'Verify Your Email - Taskify',
+      `Hello ${user.firstName}, your Taskify verification code is ${otp}. This code expires in 5 minutes.`,
+      `
   <div style="
     font-family: Arial, sans-serif;
     background-color: #f4f7fb;
@@ -566,8 +562,7 @@ export class AuthService {
     </div>
   </div>
   `,
-      )
-      .catch((err) => console.error('Resend OTP email send error:', err));
+    );
 
     return {
       success: true,
