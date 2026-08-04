@@ -14,14 +14,10 @@ import { LoginDto } from '../users/dtos/login.dtos';
 import { ForgotPasswordDto } from '../users/dtos/forgot-password.dto';
 import { ResetPasswordDto } from '../users/dtos/reset-password.dto';
 import { ChangePasswordDto } from '../users/dtos/change-password.dto';
-import * as crypto from 'crypto';
 import { EmailService } from '../common/email/email.service';
 import { Roles } from '../users/dtos/user.dto';
-import { RefreshTokenDto } from '../users/dtos/refresh-token.dto';
 import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
 import { ResendOtpDto } from '../users/dtos/resend-otp.dto';
-import { UpdateProjectDto } from '../project/dtos/update-project.dto';
-import { UpdateUserDto } from '../users/dtos/update-user.dto';
 import { UpdateProfileDto } from '../users/dtos/update-profile.dto';
 
 type MongoDuplicateKeyError = {
