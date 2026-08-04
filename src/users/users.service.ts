@@ -10,7 +10,7 @@ export class UsersService {
   constructor(
     @InjectModel(UserSchemaName)
     private readonly usersModel: Model<User>,
-  ) { }
+  ) {}
 
   async addUser(user: Partial<User>) {
     const newUser = new this.usersModel(user);
@@ -52,16 +52,18 @@ export class UsersService {
 
   async setPasswordResetToken(email: string, token: string, expires: Date) {
     return await this.usersModel.findOneAndUpdate(
-      { email },
+      { email, isDeleted: false },
       { passwordResetToken: token, passwordResetExpires: expires },
       { new: true },
     );
   }
 
-  async findByPasswordResetToken(token: string) {
+  async findByPasswordResetOtp(email: string, otp: string) {
     return await this.usersModel.findOne({
-      passwordResetToken: token,
+      email,
+      passwordResetToken: otp,
       passwordResetExpires: { $gt: new Date() },
+      isDeleted: false,
     });
   }
 
@@ -77,15 +79,10 @@ export class UsersService {
     );
   }
 
-  async updateUser(
-    userId: string | Types.ObjectId,
-    update: Partial<User>,
-  ) {
-    return await this.usersModel.findByIdAndUpdate(
-      userId,
-      update,
-      { new: true },
-    );
+  async updateUser(userId: string | Types.ObjectId, update: Partial<User>) {
+    return await this.usersModel.findByIdAndUpdate(userId, update, {
+      new: true,
+    });
   }
 
   async listUsers(query: {

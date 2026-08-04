@@ -24,6 +24,22 @@ import { UpdateProjectDto } from '../project/dtos/update-project.dto';
 import { UpdateUserDto } from '../users/dtos/update-user.dto';
 import { UpdateProfileDto } from '../users/dtos/update-profile.dto';
 
+type MongoDuplicateKeyError = {
+  code: number;
+  keyPattern?: Record<string, unknown>;
+};
+
+function isMongoDuplicateKeyError(
+  error: unknown,
+): error is MongoDuplicateKeyError {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 11000
+  );
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -66,7 +82,7 @@ export class AuthService {
         emailOtpExpiresAt: new Date(Date.now() + 2 * 60 * 1000),
       });
     } catch (error) {
-      if (error?.code === 11000) {
+      if (isMongoDuplicateKeyError(error)) {
         const duplicateField = Object.keys(error.keyPattern ?? {})[0];
         throw new ConflictException(
           duplicateField === 'userName'
@@ -319,7 +335,8 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
-    const user = await this.usersService.findByEmail(dto.email);
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.usersService.findByEmail(email);
 
     if (!user) {
       throw new HttpException(
@@ -331,7 +348,7 @@ export class AuthService {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    await this.usersService.setPasswordResetToken(dto.email, otp, expires);
+    await this.usersService.setPasswordResetToken(email, otp, expires);
 
     await this.emailService.sendMail(
       user.email,
@@ -372,7 +389,7 @@ export class AuthService {
         </h1>
       </div>
       <p style="color: #777; font-size: 14px;">
-        ⏳ This verification code will expire in <b>5 minutes</b>.
+     ⏳ This verification code will expire in <b>2 minutes</b>.
       </p>
       <p style="color: #999; font-size: 13px; margin-top: 30px;">
         If you did not request a password reset, you can safely ignore this email.
@@ -390,7 +407,8 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto) {
-    const user = await this.usersService.findByPasswordResetToken(dto.token);
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.usersService.findByPasswordResetOtp(email, dto.otp);
 
     if (!user) {
       throw new HttpException('Invalid or expired OTP', HttpStatus.BAD_REQUEST);
@@ -403,7 +421,7 @@ export class AuthService {
   }
 
   async changePassword(user: any, dto: ChangePasswordDto) {
-    const existing = await this.usersService.findById(user.id);
+    const existing = await this.usersService.findById(user.id || user.userId);
 
     if (!existing) {
       throw new HttpException('User not found', HttpStatus.NOT_FOUND);
@@ -418,7 +436,8 @@ export class AuthService {
       );
     }
 
-    await this.usersService.resetPassword(existing._id, dto.newPassword);
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
+    await this.usersService.resetPassword(existing._id, hashedPassword);
 
     return { message: 'Password changed successfully' };
   }
@@ -478,12 +497,6 @@ export class AuthService {
       emailOtpExpiresAt: new Date(Date.now() + 2 * 60 * 1000),
     });
 
-    // await this.emailService.sendMail(
-    //   user.email,
-    //   'Verify your email',
-    //   `Your verification code is ${otp}. It expires in 5 minutes.`,
-    // );
-
     await this.emailService.sendMail(
       user.email,
       'Verify Your Email - Taskify',
@@ -537,7 +550,7 @@ export class AuthService {
       </div>
 
       <p style="color:#777;">
-        ⏳ This code expires in <b>5 minutes</b>.
+     ⏳ This verification code will expire in <b>2 minutes</b>.
       </p>
 
       <p style="
