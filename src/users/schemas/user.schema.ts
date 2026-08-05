@@ -38,6 +38,13 @@ export const UserSchema = new mongoose.Schema(
       default: null,
     },
 
+    gender: {
+      type: String,
+      enum: ['Male', 'Female', 'Other', 'Prefer not to say'],
+      required: false,
+      default: null,
+    },
+
     userName: {
       type: String,
       required: true,
@@ -65,7 +72,7 @@ export const UserSchema = new mongoose.Schema(
       default: null,
     },
     phone: {
-      type: String,
+      type: Number,
       default: null,
     },
 

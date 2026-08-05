@@ -617,10 +617,20 @@ export class AuthService {
       throw new HttpException('User not found', HttpStatus.NOT_FOUND);
     }
 
-    await this.usersService.updateUser(existing._id, {
+    const updates = {
       avatar: dto.avatar,
+      dob: dto.dob,
+      gender: dto.gender,
+      bio: dto.bio,
+      phone: dto.phone,
       isActive: dto.isActive,
+    };
+
+    Object.keys(updates).forEach((key) => {
+      if (updates[key] === undefined) delete updates[key];
     });
+
+    await this.usersService.updateUser(existing._id, updates);
 
     const updatedUser = await this.usersService.findById(existing._id);
 
@@ -629,8 +639,17 @@ export class AuthService {
       message: 'Profile updated successfully',
       data: {
         _id: updatedUser._id,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        email: updatedUser.email,
+        userName: updatedUser.userName,
+        dob: updatedUser.dob,
+        gender: updatedUser.gender,
+        bio: updatedUser.bio,
+        phone: updatedUser.phone,
         avatar: updatedUser.avatar,
         isActive: updatedUser.isActive,
+        isEmailVerified: updatedUser.isEmailVerified,
         updatedAt: updatedUser.updatedAt,
       },
     };
