@@ -464,12 +464,44 @@ export class AuthService {
       throw new HttpException('Invalid or expired OTP', HttpStatus.BAD_REQUEST);
     }
 
-    await this.usersService.markEmailVerified(user._id);
+    const verifiedUser = await this.usersService.markEmailVerified(user._id);
+
+    const payload = {
+      username: verifiedUser.userName,
+      id: verifiedUser._id,
+      sub: verifiedUser._id,
+      roles: verifiedUser.role,
+      iss: 'Taskify',
+    };
+
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+    const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
+
+    await this.usersService.setRefreshToken(verifiedUser._id, refreshToken);
 
     return {
       success: true,
       message: 'Email verified successfully',
+      accessToken,
+      refreshToken,
       timestamp: new Date().toISOString(),
+      user: {
+        _id: verifiedUser._id,
+        firstName: verifiedUser.firstName,
+        lastName: verifiedUser.lastName,
+        email: verifiedUser.email,
+        userName: verifiedUser.userName,
+        gender: verifiedUser.gender,
+        dob: verifiedUser.dob,
+        bio: verifiedUser.bio ?? null,
+        phone: verifiedUser.phone ?? null,
+        role: verifiedUser.role,
+        avatar: verifiedUser.avatar ?? null,
+        isEmailVerified: verifiedUser.isEmailVerified,
+        isActive: verifiedUser.isActive,
+        createdAt: verifiedUser.createdAt,
+        updatedAt: verifiedUser.updatedAt,
+      },
     };
   }
 
