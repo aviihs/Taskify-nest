@@ -31,7 +31,7 @@ import { UpdateProfileDto } from '../users/dtos/update-profile.dto';
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
 
   @Public()
   @Post('register')
@@ -311,10 +311,7 @@ export class AuthController {
       },
     },
   })
-  updateProfile(
-    @Request() req,
-    @Body() dto: UpdateProfileDto,
-  ) {
+  updateProfile(@Request() req, @Body() dto: UpdateProfileDto) {
     return this.authService.updateProfile(req.user, dto);
   }
 }
