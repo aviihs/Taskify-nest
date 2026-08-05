@@ -67,10 +67,16 @@ export class AuthService {
     let user;
     try {
       user = await this.usersService.addUser({
-        ...dto,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
         email,
         userName,
         password: hashedPassword,
+        ...(dto.dob ? { dob: dto.dob } : {}),
+        ...(dto.gender ? { gender: dto.gender } : {}),
+        ...(dto.avatar ? { avatar: dto.avatar } : {}),
+        ...(dto.bio ? { bio: dto.bio } : {}),
+        ...(dto.phone ? { phone: dto.phone } : {}),
         role: Roles.USER,
         isActive: true,
         isEmailVerified: false,

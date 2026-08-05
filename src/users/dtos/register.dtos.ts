@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsDateString,
@@ -20,9 +21,6 @@ export enum Gender {
   PREFER_NOT_TO_SAY = 'Prefer not to say',
 }
 export class RegisterDto {
-
-
-
   @ApiProperty({
     example: 'Shiva',
     description: 'User first name',
@@ -69,20 +67,24 @@ export class RegisterDto {
     example: '2002-08-15',
     description: 'Date of birth',
   })
-  @IsNotEmpty()
+  @Transform(({ value }) =>
+    value === '' || value === null ? undefined : value,
+  )
   @IsOptional()
   @IsDateString()
-  dob: string;
+  dob?: string;
 
   @ApiPropertyOptional({
     enum: Gender,
     example: Gender.MALE,
     description: 'Gender of the user',
   })
+  @Transform(({ value }) =>
+    value === '' || value === null ? undefined : value,
+  )
   @IsOptional()
   @IsEnum(Gender)
-  @IsNotEmpty()
-  gender: Gender;
+  gender?: Gender;
 
   @ApiProperty({
     example: 'Password@123',
