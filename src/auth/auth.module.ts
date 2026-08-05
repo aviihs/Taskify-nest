@@ -7,10 +7,10 @@ import { jwtConstants } from './constants';
 import { JwtStrategy } from './jwt.strategy';
 import { AuthController } from './auth.controller';
 import { EmailService } from '../common/email/email.service';
-import { RolesGuard } from '../common/guards/roles.guard';
-import { Reflector } from '@nestjs/core';
-import { PermissionsService } from '../common/permissions/permissions.service';
-import { PermissionsGuard } from '../common/guards/permissions.guard';
+// import { RolesGuard } from '../common/guards/roles.guard';
+// import { Reflector } from '@nestjs/core';
+// import { PermissionsService } from '../common/permissions/permissions.service';
+// import { PermissionsGuard } from '../common/guards/permissions.guard';
 
 @Module({
   controllers: [AuthController],

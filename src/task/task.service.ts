@@ -9,7 +9,7 @@ import { TaskPriority } from './interfaces/task-priority.enum';
 
 @Injectable()
 export class TaskService {
-  constructor(private readonly taskRepository: TaskRepository) { }
+  constructor(private readonly taskRepository: TaskRepository) {}
 
   async validateUser(userId: string, taskId: string): Promise<boolean> {
     const task = await this.taskRepository.findById(taskId);
@@ -58,10 +58,7 @@ export class TaskService {
 
     const filter: any = {
       isDeleted: false,
-      $or: [
-        { createdBy: userId },
-        { assignedTo: userId },
-      ],
+      $or: [{ createdBy: userId }, { assignedTo: userId }],
     };
 
     if (query.search) {
@@ -90,7 +87,6 @@ export class TaskService {
       this.taskRepository.count(filter),
     ]);
 
-
     return {
       message: 'Tasks fetched successfully',
       timestamp: new Date().toISOString(),
@@ -100,18 +96,6 @@ export class TaskService {
       total,
     };
   }
-
-  // async listTasks(user: User, query: any) {
-  //   const tasks = await this.taskRepository.find({}, { skip: 0, limit: 100 });
-
-  //   console.log(tasks);
-
-  //   return {
-  //     tasks,
-  //   };
-  // }
-
-
 
   async listTaskById(id: string, user: User) {
     const task = await this.ensureAccessTask(id, user);
