@@ -40,7 +40,7 @@ export const UserSchema = new mongoose.Schema(
 
     gender: {
       type: String,
-      enum: ['Male', 'Female', 'Other', 'Prefer not to say'],
+      enum: ['Male', 'Female', 'Other', 'Prefer not to say', null],
       required: false,
       default: null,
     },
