@@ -10,7 +10,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-
+ 
 import { extname } from 'path';
 import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -88,3 +88,4 @@ export class AttachmentsController {
     return this.attachmentsService.deleteAttachment(id, user);
   }
 }
+
