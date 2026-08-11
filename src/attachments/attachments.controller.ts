@@ -7,7 +7,7 @@ import {
   UploadedFile,
   UseGuards,
   UseInterceptors,
-  Res,
+  Res, 
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 
