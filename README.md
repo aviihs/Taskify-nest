@@ -20,10 +20,10 @@ Every user has a **Personal workspace** and can join any number of **organizatio
 ## Quick start
 
 ```bash
-pnpm install
+bun install
 cp .env.example .env      # then fill in MONGO_URI and JWT_SECRET
-pnpm migrate              # only needed once for a database with pre-workspace data
-pnpm start:dev
+bun run migrate           # only needed once for a database with pre-workspace data
+bun run start:dev
 ```
 
 - API: `http://localhost:3000`
@@ -47,14 +47,16 @@ The app refuses to start if `MONGO_URI` or `JWT_SECRET` is missing.
 
 ## Scripts
 
+Use `bun run <script>`: plain `bun test` and `bun build` start Bun's own test runner and bundler instead of these scripts.
+
 | Command | What it does |
 | --- | --- |
-| `pnpm start:dev` | Run with hot reload |
-| `pnpm build` / `pnpm start:prod` | Build to `dist/` and run it |
-| `pnpm lint` | ESLint + Prettier (auto-fix) |
-| `pnpm test` | Unit tests |
-| `pnpm test:e2e` | End-to-end tests; starts its own in-memory MongoDB, no setup needed |
-| `pnpm migrate` / `pnpm migrate:prod` | Run pending data migrations (dev / built) |
+| `bun run start:dev` | Run with hot reload |
+| `bun run build` / `bun run start:prod` | Build to `dist/` and run it |
+| `bun run lint` | ESLint + Prettier (auto-fix) |
+| `bun run test` | Unit tests |
+| `bun run test:e2e` | End-to-end tests; starts its own in-memory MongoDB, no setup needed |
+| `bun run migrate` / `bun run migrate:prod` | Run pending data migrations (dev / built) |
 
 ## Project structure
 
