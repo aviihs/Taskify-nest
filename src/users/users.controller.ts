@@ -1,158 +1,165 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
+  Patch,
   Post,
   Put,
   Query,
-  UploadedFile,
-  UseInterceptors,
-  UseGuards,
-  Request,
-  Patch,
   Res,
-  HttpStatus,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiBody } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Response } from 'express';
 import { diskStorage } from 'multer';
-import { UsersService } from './users.service';
-import { UpdateUserDto } from './dtos/update-user.dto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { extname, join } from 'path';
+import { randomUUID } from 'crypto';
+import { env } from '../common/config/env.config';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { extname } from 'path';
-import { Response } from 'express';
+import { ParseObjectIdPipe } from '../common/pipes/parse-object-id.pipe';
+import { AuthUser } from '../common/types/auth-user';
+import { UpdateUserDto } from './dtos/update-user.dto';
+import { Roles as PlatformRole } from './dtos/user.dto';
+import { PUBLIC_USER_FIELDS } from './public-user';
+import { UsersService } from './users.service';
+
+const AVATAR_DIR = join(env.uploadDir, 'avatars');
+const AVATAR_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+];
 
 @ApiTags('Users')
+@ApiBearerAuth('JWT-auth')
+@UseGuards(RolesGuard)
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Roles(PlatformRole.ADMIN)
   @Get()
-  @ApiOperation({ summary: 'List users with search, pagination and filters' })
+  @ApiOperation({ summary: 'List all users (platform admin)' })
   list(
-    @Query('search') search: string,
-    @Query('role') role: string,
-    @Query('isActive') isActive: string,
+    @Query('search') search?: string,
+    @Query('role') role?: string,
+    @Query('isActive') isActive?: string,
     @Query('page') page = '1',
     @Query('limit') limit = '10',
   ) {
-    const parsed = {
+    return this.usersService.listUsers({
       search,
       role,
       isActive:
         isActive === 'true' ? true : isActive === 'false' ? false : undefined,
       page: Number(page),
-      limit: Number(limit),
-    };
-
-    return this.usersService.listUsers(parsed);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Get('me')
-  @ApiOperation({ summary: 'Get current authenticated user profile' })
-  async me(@Request() req) {
-    const user = await this.usersService.findById(
-      req.user.id || req.user.userId,
-    );
-    return user;
-  }
-
-  @Get(':id')
-  @ApiOperation({ summary: 'Get single user by id' })
-  async get(@Param('id') id: string) {
-    const user = await this.usersService.findById(id);
-    return user;
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
-  @Put(':id')
-  @ApiOperation({ summary: 'Update user' })
-  update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
-    return this.usersService.updateUser(id, dto);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @UseGuards(RolesGuard)
-  @Roles('ADMIN')
-  @Patch(':id/activate')
-  activate(@Param('id') id: string) {
-    return this.usersService.updateUser(id, { isActive: true });
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @UseGuards(RolesGuard)
-  @Roles('ADMIN')
-  @Patch(':id/deactivate')
-  deactivate(@Param('id') id: string) {
-    return this.usersService.updateUser(id, { isActive: false });
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Post(':id/avatar')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: diskStorage({
-        destination: './uploads/avatars',
-        filename: (req, file, cb) => {
-          const uniqueSuffix =
-            Date.now() + '-' + Math.round(Math.random() * 1e9);
-          const fileExtName = extname(file.originalname);
-          cb(null, `${uniqueSuffix}${fileExtName}`);
-        },
-      }),
-      limits: {
-        fileSize: 5 * 1024 * 1024,
-      },
-    }),
-  )
-  async uploadAvatar(
-    @Param('id') id: string,
-    @UploadedFile() file: Express.Multer.File,
-  ) {
-    if (!file) {
-      return { message: 'No file uploaded' };
-    }
-
-    const path = `/uploads/avatars/${file.filename}`;
-    const user = await this.usersService.updateAvatar(id, path);
-
-    return { message: 'Avatar uploaded', avatar: user.avatar };
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @UseGuards(RolesGuard)
-  @Roles('ADMIN')
-  @Post()
-  @ApiOperation({ summary: 'Create a new user (admin)' })
-  create(@Body() dto: any) {
-    return this.usersService.addUser(dto);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @UseGuards(RolesGuard)
-  @Roles('ADMIN')
-  @Patch(':id/delete')
-  @ApiOperation({ summary: 'Soft-delete a user (admin)' })
-  delete(@Param('id') id: string) {
-    return this.usersService.updateUser(id, {
-      isDeleted: true,
-      isActive: false,
+      limit: Math.min(Number(limit) || 10, 100),
     });
   }
 
-  @Get(':id/avatar')
-  async serveAvatar(@Param('id') id: string, @Res() res: Response) {
-    const user = await this.usersService.findById(id);
-    if (!user || !user.avatar) {
-      return res.status(HttpStatus.NOT_FOUND).send('Avatar not found');
-    }
+  @Get('me')
+  @ApiOperation({ summary: 'Get current authenticated user profile' })
+  async me(@CurrentUser() user: AuthUser) {
+    const found = await this.usersService.findById(user.id);
+    if (!found) throw new NotFoundException('User not found');
+    return found;
+  }
 
+  @Post('me/avatar')
+  @ApiOperation({ summary: 'Upload my avatar' })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: AVATAR_DIR,
+        filename: (_req, file, cb) =>
+          cb(
+            null,
+            `${randomUUID()}${extname(file.originalname).toLowerCase()}`,
+          ),
+      }),
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) =>
+        AVATAR_MIME_TYPES.includes(file.mimetype)
+          ? cb(null, true)
+          : cb(new BadRequestException('Unsupported image type'), false),
+    }),
+  )
+  async uploadAvatar(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const updated = await this.usersService.updateAvatar(
+      user.id,
+      join(AVATAR_DIR, file.filename),
+    );
+    return { message: 'Avatar uploaded', avatar: updated.avatar };
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get a public user profile' })
+  async get(@Param('id', ParseObjectIdPipe) id: string) {
+    const user = await this.usersService.findById(id);
+    if (!user) throw new NotFoundException('User not found');
+    const profile: Record<string, unknown> = { _id: user._id };
+    Object.keys(PUBLIC_USER_FIELDS).forEach(
+      (field) => (profile[field] = user.get(field)),
+    );
+    return profile;
+  }
+
+  @Get(':id/avatar')
+  @ApiOperation({ summary: "Download a user's avatar" })
+  async serveAvatar(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Res() res: Response,
+  ) {
+    const user = await this.usersService.findById(id);
+    if (!user?.avatar || /^https?:\/\//.test(user.avatar)) {
+      throw new NotFoundException('Avatar not found');
+    }
     return res.sendFile(user.avatar, { root: '.' });
+  }
+
+  @Roles(PlatformRole.ADMIN)
+  @Put(':id')
+  @ApiOperation({ summary: 'Update user (platform admin)' })
+  update(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: UpdateUserDto,
+  ) {
+    return this.usersService.updateUser(id, dto);
+  }
+
+  @Roles(PlatformRole.ADMIN)
+  @Patch(':id/activate')
+  activate(@Param('id', ParseObjectIdPipe) id: string) {
+    return this.usersService.updateUser(id, { isActive: true });
+  }
+
+  @Roles(PlatformRole.ADMIN)
+  @Patch(':id/deactivate')
+  deactivate(@Param('id', ParseObjectIdPipe) id: string) {
+    return this.usersService.updateUser(id, { isActive: false });
+  }
+
+  @Roles(PlatformRole.ADMIN)
+  @Patch(':id/delete')
+  @ApiOperation({ summary: 'Soft-delete a user (platform admin)' })
+  delete(@Param('id', ParseObjectIdPipe) id: string) {
+    return this.usersService.updateUser(id, {
+      isDeleted: true,
+      isActive: false,
+      refreshTokens: [],
+    });
   }
 }

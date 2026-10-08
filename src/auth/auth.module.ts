@@ -1,28 +1,29 @@
 import { Module } from '@nestjs/common';
-import { AuthService } from './auth.service';
-import { UsersModule } from '../users/users.module';
-import { PassportModule } from '@nestjs/passport';
+import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
-import { jwtConstants } from './constants';
-import { JwtStrategy } from './jwt.strategy';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { UsersModule } from '../users/users.module';
+import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { AuthController } from './auth.controller';
-import { EmailService } from '../common/email/email.service';
-// import { RolesGuard } from '../common/guards/roles.guard';
-// import { Reflector } from '@nestjs/core';
-// import { PermissionsService } from '../common/permissions/permissions.service';
-// import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { AuthService } from './auth.service';
+import { jwtConstants } from './constants';
 
 @Module({
-  controllers: [AuthController],
   imports: [
     UsersModule,
-    PassportModule,
+    WorkspacesModule,
     JwtModule.register({
       secret: jwtConstants.secret,
-      signOptions: { expiresIn: '6000s' },
+      signOptions: { expiresIn: '1h' },
     }),
   ],
-  providers: [AuthService, JwtStrategy, EmailService],
-  exports: [AuthService],
+  controllers: [AuthController],
+  providers: [
+    AuthService,
+    JwtAuthGuard,
+    // Every route requires a valid access token unless marked @Public().
+    { provide: APP_GUARD, useExisting: JwtAuthGuard },
+  ],
+  exports: [AuthService, JwtAuthGuard],
 })
 export class AuthModule {}

@@ -1,12 +1,16 @@
 import * as mongoose from 'mongoose';
+import { Roles } from '../dtos/user.dto';
 
-export enum Roles {
-  ADMIN = 'ADMIN',
-  MANAGER = 'MANAGER',
-  TEAM_LEAD = 'TEAM_LEAD',
-  EMPLOYEE = 'EMPLOYEE',
-  USER = 'USER',
-}
+/** Never serialised to API responses, whatever endpoint returns a user document. */
+const SECRET_FIELDS = [
+  'password',
+  'refreshTokens',
+  'passwordResetToken',
+  'passwordResetExpires',
+  'emailOtp',
+  'emailOtpExpiresAt',
+  '__v',
+] as const;
 
 export const UserSchema = new mongoose.Schema(
   {
@@ -118,6 +122,12 @@ export const UserSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    toJSON: {
+      transform: (_doc, ret: Record<string, unknown>) => {
+        SECRET_FIELDS.forEach((field) => delete ret[field]);
+        return ret;
+      },
+    },
   },
 );
 

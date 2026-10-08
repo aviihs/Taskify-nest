@@ -1,77 +1,72 @@
 import {
-  Injectable,
   ConflictException,
   ForbiddenException,
   HttpException,
   HttpStatus,
+  Injectable,
 } from '@nestjs/common';
-import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-// import { v4 as uuidv4 } from 'uuid';
-import { RegisterDto } from '../users/dtos/register.dtos';
-import { LoginDto } from '../users/dtos/login.dtos';
-import { ForgotPasswordDto } from '../users/dtos/forgot-password.dto';
-import { ResetPasswordDto } from '../users/dtos/reset-password.dto';
-import { ChangePasswordDto } from '../users/dtos/change-password.dto';
+import { randomInt, randomUUID } from 'crypto';
+import { otpEmail } from '../common/email/email-templates';
 import { EmailService } from '../common/email/email.service';
+import { AuthUser, JwtPayload, TokenType } from '../common/types/auth-user';
+import { isDuplicateKeyError } from '../common/utils/mongo-errors';
+import { ChangePasswordDto } from '../users/dtos/change-password.dto';
+import { ForgotPasswordDto } from '../users/dtos/forgot-password.dto';
+import { LoginDto } from '../users/dtos/login.dtos';
+import { RefreshTokenDto } from '../users/dtos/refresh-token.dto';
+import { RegisterDto } from '../users/dtos/register.dtos';
+import { ResendOtpDto } from '../users/dtos/resend-otp.dto';
+import { ResetPasswordDto } from '../users/dtos/reset-password.dto';
+import { UpdateProfileDto } from '../users/dtos/update-profile.dto';
 import { Roles } from '../users/dtos/user.dto';
 import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
-import { ResendOtpDto } from '../users/dtos/resend-otp.dto';
-import { UpdateProfileDto } from '../users/dtos/update-profile.dto';
+import { UsersService } from '../users/users.service';
+import { WorkspacesService } from '../workspaces/workspaces.service';
 
-type MongoDuplicateKeyError = {
-  code: number;
-  keyPattern?: Record<string, unknown>;
-};
+const BCRYPT_ROUNDS = 12;
+const ACCESS_TOKEN_TTL = '1h';
+const REFRESH_TOKEN_TTL = '7d';
+const EMAIL_OTP_TTL_MINUTES = 2;
+const RESET_OTP_TTL_MINUTES = 5;
 
-function isMongoDuplicateKeyError(
-  error: unknown,
-): error is MongoDuplicateKeyError {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 11000
-  );
-}
+type UserDocument = NonNullable<Awaited<ReturnType<UsersService['findById']>>>;
+
+const generateOtp = (): string => randomInt(100000, 1000000).toString();
+const minutesFromNow = (minutes: number): Date =>
+  new Date(Date.now() + minutes * 60 * 1000);
+const normalizeEmail = (email: string): string => email.trim().toLowerCase();
 
 @Injectable()
 export class AuthService {
   constructor(
-    private usersService: UsersService,
-    private jwtService: JwtService,
-    private emailService: EmailService,
+    private readonly usersService: UsersService,
+    private readonly jwtService: JwtService,
+    private readonly emailService: EmailService,
+    private readonly workspacesService: WorkspacesService,
   ) {}
 
   async register(dto: RegisterDto) {
-    const email = dto.email.trim().toLowerCase();
+    const email = normalizeEmail(dto.email);
     const userName = dto.userName.trim();
 
-    const existingEmail = await this.usersService.findByEmail(email);
-
-    if (existingEmail) {
+    if (await this.usersService.findByEmail(email)) {
       throw new ConflictException('Email already exists');
     }
-
-    const existingUserName = await this.usersService.findByUserName(userName);
-
-    if (existingUserName) {
+    if (await this.usersService.findByUserName(userName)) {
       throw new ConflictException('Username already exists');
     }
 
-    const hashedPassword = await bcrypt.hash(dto.password, 12);
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    let user;
+    const otp = generateOtp();
+    let user: UserDocument;
     try {
       user = await this.usersService.addUser({
         firstName: dto.firstName,
         lastName: dto.lastName,
         email,
         userName,
-        password: hashedPassword,
+        password: await bcrypt.hash(dto.password, BCRYPT_ROUNDS),
         ...(dto.dob ? { dob: dto.dob } : {}),
         ...(dto.gender ? { gender: dto.gender } : {}),
         ...(dto.avatar ? { avatar: dto.avatar } : {}),
@@ -81,10 +76,10 @@ export class AuthService {
         isActive: true,
         isEmailVerified: false,
         emailOtp: otp,
-        emailOtpExpiresAt: new Date(Date.now() + 2 * 60 * 1000),
+        emailOtpExpiresAt: minutesFromNow(EMAIL_OTP_TTL_MINUTES),
       });
     } catch (error) {
-      if (isMongoDuplicateKeyError(error)) {
+      if (isDuplicateKeyError(error)) {
         const duplicateField = Object.keys(error.keyPattern ?? {})[0];
         throw new ConflictException(
           duplicateField === 'userName'
@@ -94,116 +89,13 @@ export class AuthService {
       }
       throw error;
     }
-    console.log('OTP GENERATED:', otp);
-    console.log('EMAIL:', email);
 
-    await this.emailService.sendMail(
-      email,
-      'Verify Your Email - Taskify',
-      `Hello ${dto.firstName}, your Taskify verification code is ${otp}. This code expires in 2 minutes.`,
-      `
-  <div style="
-    font-family: Arial, sans-serif;
-    background-color: #f4f7fb;
-    padding: 40px 20px;
-  ">
-    <div style="
-      max-width: 500px;
-      margin: auto;
-      background: white;
-      border-radius: 12px;
-      padding: 30px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-      text-align: center;
-    ">
-
-      <h2 style="
-        color: #2563eb;
-        margin-bottom: 10px;
-      ">
-        🚀 Taskify
-      </h2>
-
-      <h3 style="
-        color: #333;
-      ">
-        Email Verification
-      </h3>
-
-      <p style="
-        color: #555;
-        font-size: 15px;
-      ">
-        Hello <b>${dto.firstName}</b>,
-      </p>
-
-      <p style="
-        color: #555;
-        font-size: 15px;
-        line-height: 1.6;
-      ">
-        Thank you for joining Taskify.
-        Please use the verification code below to activate your account.
-      </p>
-
-
-      <div style="
-        background: #eff6ff;
-        border: 2px dashed #2563eb;
-        border-radius: 10px;
-        padding: 20px;
-        margin: 25px 0;
-      ">
-        <h1 style="
-          letter-spacing: 8px;
-          color: #2563eb;
-          margin: 0;
-          font-size: 36px;
-        ">
-          ${otp}
-        </h1>
-      </div>
-
-
-      <p style="
-        color: #777;
-        font-size: 14px;
-      ">
-        ⏳ This verification code will expire in <b>2 minutes</b>.
-      </p>
-
-
-      <p style="
-        color: #999;
-        font-size: 13px;
-        margin-top: 30px;
-      ">
-        If you did not create a Taskify account, you can safely ignore this email.
-      </p>
-
-
-      <hr style="
-        border:none;
-        border-top:1px solid #eee;
-        margin:25px 0;
-      ">
-
-
-      <p style="
-        color:#aaa;
-        font-size:12px;
-      ">
-        © 2026 Taskify. All rights reserved.
-      </p>
-
-    </div>
-  </div>
-  `,
-    );
+    await this.workspacesService.ensurePersonalWorkspace(user._id);
+    await this.sendOtpEmail(user, otp, 'verify-email');
 
     return {
       success: true,
-      message: 'User registered successfully,',
+      message: 'User registered successfully',
       data: {
         _id: user._id,
         firstName: user.firstName,
@@ -220,116 +112,52 @@ export class AuthService {
     };
   }
 
-  // async login(dto: LoginDto): Promise<{ accessToken: string }> {
-  async login(dto: LoginDto): Promise<{
-    success: boolean;
-    message: string;
-    accessToken: string;
-    refreshToken: string;
-    user: any;
-    timestamp: string;
-  }> {
-    const result = await this.usersService.findByEmail(
-      dto.email.trim().toLowerCase(),
-    );
-
-    if (!result) {
+  async login(dto: LoginDto) {
+    const user = await this.usersService.findByEmail(normalizeEmail(dto.email));
+    if (!user) {
       throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
     }
-
-    if (!result.isEmailVerified) {
+    if (!user.isEmailVerified) {
       throw new ForbiddenException('Please verify your email first.');
     }
-
-    const passwordMatched = await bcrypt.compare(dto.password, result.password);
-
-    if (!passwordMatched) {
+    if (!(await bcrypt.compare(dto.password, user.password))) {
       throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
     }
 
-    if (result && (await bcrypt.compare(dto.password, result.password))) {
-      const payload = {
-        username: result.userName,
-        id: result._id,
-        sub: result._id,
-        roles: result.role,
-        iss: 'Taskify',
-      };
-
-      const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
-      const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
-
-      // store refresh token
-      await this.usersService.setRefreshToken(result._id, refreshToken);
-
-      return {
-        success: true,
-        message: 'Login successful',
-        accessToken,
-        refreshToken,
-        timestamp: new Date().toISOString(),
-        user: {
-          _id: result._id,
-          firstName: result.firstName,
-          lastName: result.lastName,
-          email: result.email,
-          userName: result.userName,
-          gender: result.gender,
-          dob: result.dob,
-          bio: result.bio ?? null,
-          phone: result.phone ?? null,
-          role: result.role,
-          avatar: result.avatar ?? null,
-          isEmailVerified: result.isEmailVerified,
-          isActive: result.isActive,
-          createdAt: result.createdAt,
-          updatedAt: result.updatedAt,
-        },
-      };
-    }
-
-    throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
+    return {
+      success: true,
+      message: 'Login successful',
+      ...(await this.issueTokens(user)),
+      timestamp: new Date().toISOString(),
+      user: this.toUserResponse(user),
+    };
   }
 
-  async refresh(dto: any) {
-    const existing = await this.usersService.findByRefreshToken(dto.token);
-
-    if (!existing) {
+  async refresh(dto: RefreshTokenDto) {
+    const user = await this.findUserByValidRefreshToken(dto.token);
+    if (!user) {
       throw new HttpException('Invalid refresh token', HttpStatus.UNAUTHORIZED);
     }
 
-    // rotate refresh token
-    const payload = {
-      username: existing.userName,
-      id: existing._id,
-      roles: existing.role,
-      iss: 'Taskify',
-    };
-
-    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
-    const newRefreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
-
-    // replace old refresh token with new one
-    await this.usersService.removeRefreshToken(existing._id, dto.token);
-    await this.usersService.setRefreshToken(existing._id, newRefreshToken);
+    // Rotate: the presented refresh token is single-use.
+    await this.usersService.removeRefreshToken(user._id, dto.token);
+    const { accessToken, refreshToken } = await this.issueTokens(user);
 
     return {
       message: 'Token refreshed',
       accessToken,
-      refreshToken: newRefreshToken,
+      refreshToken,
       timestamp: new Date().toISOString(),
     };
   }
 
-  async logout(dto: any) {
+  async logout(dto: RefreshTokenDto) {
     const existing = await this.usersService.findByRefreshToken(dto.token);
-
     if (!existing) {
       return { message: 'Already logged out' };
     }
 
     await this.usersService.removeRefreshToken(existing._id, dto.token);
-
     return {
       message: 'Logged out successfully',
       timestamp: new Date().toISOString(),
@@ -337,9 +165,8 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
-    const email = dto.email.trim().toLowerCase();
+    const email = normalizeEmail(dto.email);
     const user = await this.usersService.findByEmail(email);
-
     if (!user) {
       throw new HttpException(
         'User with this email not found',
@@ -347,111 +174,52 @@ export class AuthService {
       );
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
-
-    await this.usersService.setPasswordResetToken(email, otp, expires);
-
-    await this.emailService.sendMail(
-      user.email,
-      'Password Reset OTP - Taskify',
-      `Hello ${user.firstName}, your password reset code is ${otp}. This code expires in 5 minutes.`,
-      `
-  <div style="
-    font-family: Arial, sans-serif;
-    background-color: #f4f7fb;
-    padding: 40px 20px;
-  ">
-    <div style="
-      max-width: 500px;
-      margin: auto;
-      background: white;
-      border-radius: 12px;
-      padding: 30px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-      text-align: center;
-    ">
-      <h2 style="color: #2563eb; margin-bottom: 10px;">🚀 Taskify</h2>
-      <h3 style="color: #333;">Password Reset Verification</h3>
-      <p style="color: #555; font-size: 15px;">
-        Hello <b>${user.firstName}</b>,
-      </p>
-      <p style="color: #555; font-size: 15px; line-height: 1.6;">
-        Please use the verification code below to reset your password.
-      </p>
-      <div style="
-        background: #eff6ff;
-        border: 2px dashed #2563eb;
-        border-radius: 10px;
-        padding: 20px;
-        margin: 25px 0;
-      ">
-        <h1 style="letter-spacing: 8px; color: #2563eb; margin: 0; font-size: 36px;">
-          ${otp}
-        </h1>
-      </div>
-      <p style="color: #777; font-size: 14px;">
-     ⏳ This verification code will expire in <b>2 minutes</b>.
-      </p>
-      <p style="color: #999; font-size: 13px; margin-top: 30px;">
-        If you did not request a password reset, you can safely ignore this email.
-      </p>
-      <hr style="border:none; border-top:1px solid #eee; margin:25px 0;">
-      <p style="color:#aaa; font-size:12px;">
-        © 2026 Taskify. All rights reserved.
-      </p>
-    </div>
-  </div>
-      `,
+    const otp = generateOtp();
+    await this.usersService.setPasswordResetToken(
+      email,
+      otp,
+      minutesFromNow(RESET_OTP_TTL_MINUTES),
     );
+    await this.sendOtpEmail(user, otp, 'reset-password');
 
     return { success: true, message: 'OTP sent to your email successfully' };
   }
 
   async resetPassword(dto: ResetPasswordDto) {
-    const email = dto.email.trim().toLowerCase();
-    const user = await this.usersService.findByPasswordResetOtp(email, dto.otp);
-
+    const user = await this.usersService.findByPasswordResetOtp(
+      normalizeEmail(dto.email),
+      dto.otp,
+    );
     if (!user) {
       throw new HttpException('Invalid or expired OTP', HttpStatus.BAD_REQUEST);
     }
 
-    const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
-    await this.usersService.resetPassword(user._id, hashedPassword);
-
+    await this.usersService.resetPassword(
+      user._id,
+      await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS),
+    );
     return { success: true, message: 'Password reset successfully' };
   }
 
-  async changePassword(user: any, dto: ChangePasswordDto) {
-    const existing = await this.usersService.findById(user.id || user.userId);
-
-    if (!existing) {
-      throw new HttpException('User not found', HttpStatus.NOT_FOUND);
-    }
-
-    const match = await bcrypt.compare(dto.currentPassword, existing.password);
-
-    if (!match) {
+  async changePassword(authUser: AuthUser, dto: ChangePasswordDto) {
+    const user = await this.findCurrentUser(authUser);
+    if (!(await bcrypt.compare(dto.currentPassword, user.password))) {
       throw new HttpException(
         'Current password is incorrect',
         HttpStatus.FORBIDDEN,
       );
     }
 
-    const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
-    await this.usersService.resetPassword(existing._id, hashedPassword);
-
+    await this.usersService.resetPassword(
+      user._id,
+      await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS),
+    );
     return { message: 'Password changed successfully' };
   }
 
-  async deleteAccount(user: any) {
-    const existing = await this.usersService.findById(user.id);
-
-    if (!existing) {
-      throw new HttpException('User not found', HttpStatus.NOT_FOUND);
-    }
-
-    await this.usersService.updateUser(existing._id, {
+  async deleteAccount(authUser: AuthUser) {
+    const user = await this.findCurrentUser(authUser);
+    await this.usersService.updateUser(user._id, {
       isDeleted: true,
       isActive: false,
       refreshTokens: [],
@@ -464,181 +232,57 @@ export class AuthService {
   }
 
   async verifyEmail(dto: VerifyEmailDto) {
-    const user = await this.usersService.verifyEmail(dto.email, dto.otp);
-
+    const user = await this.usersService.verifyEmail(
+      normalizeEmail(dto.email),
+      dto.otp,
+    );
     if (!user) {
       throw new HttpException('Invalid or expired OTP', HttpStatus.BAD_REQUEST);
     }
 
     const verifiedUser = await this.usersService.markEmailVerified(user._id);
-
-    const payload = {
-      username: verifiedUser.userName,
-      id: verifiedUser._id,
-      sub: verifiedUser._id,
-      roles: verifiedUser.role,
-      iss: 'Taskify',
-    };
-
-    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
-    const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
-
-    await this.usersService.setRefreshToken(verifiedUser._id, refreshToken);
-
     return {
       success: true,
       message: 'Email verified successfully',
-      accessToken,
-      refreshToken,
+      ...(await this.issueTokens(verifiedUser)),
       timestamp: new Date().toISOString(),
-      user: {
-        _id: verifiedUser._id,
-        firstName: verifiedUser.firstName,
-        lastName: verifiedUser.lastName,
-        email: verifiedUser.email,
-        userName: verifiedUser.userName,
-        gender: verifiedUser.gender,
-        dob: verifiedUser.dob,
-        bio: verifiedUser.bio ?? null,
-        phone: verifiedUser.phone ?? null,
-        role: verifiedUser.role,
-        avatar: verifiedUser.avatar ?? null,
-        isEmailVerified: verifiedUser.isEmailVerified,
-        isActive: verifiedUser.isActive,
-        createdAt: verifiedUser.createdAt,
-        updatedAt: verifiedUser.updatedAt,
-      },
+      user: this.toUserResponse(verifiedUser),
     };
   }
 
   async resendOtp(dto: ResendOtpDto) {
-    const user = await this.usersService.findByEmail(dto.email);
-
+    const user = await this.usersService.findByEmail(normalizeEmail(dto.email));
     if (!user) {
       throw new HttpException('User not found', HttpStatus.NOT_FOUND);
     }
-
     if (user.isEmailVerified) {
-      return {
-        message: 'Email already verified',
-      };
+      return { message: 'Email already verified' };
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
+    const otp = generateOtp();
     await this.usersService.updateUser(user._id, {
       emailOtp: otp,
-      emailOtpExpiresAt: new Date(Date.now() + 2 * 60 * 1000),
+      emailOtpExpiresAt: minutesFromNow(EMAIL_OTP_TTL_MINUTES),
     });
+    await this.sendOtpEmail(user, otp, 'verify-email');
 
-    await this.emailService.sendMail(
-      user.email,
-      'Verify Your Email - Taskify',
-      `Hello ${user.firstName}, your Taskify verification code is ${otp}. This code expires in 5 minutes.`,
-      `
-  <div style="
-    font-family: Arial, sans-serif;
-    background-color: #f4f7fb;
-    padding: 40px 20px;
-  ">
-    <div style="
-      max-width: 500px;
-      margin: auto;
-      background: white;
-      border-radius: 12px;
-      padding: 30px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-      text-align: center;
-    ">
-
-      <h2 style="color:#2563eb;">
-        🚀 Taskify
-      </h2>
-
-      <h3 style="color:#333;">
-        Email Verification
-      </h3>
-
-      <p>
-        Hello <b>${user.firstName}</b>,
-      </p>
-
-      <p style="color:#555;">
-        Here is your new verification code:
-      </p>
-
-      <div style="
-        background:#eff6ff;
-        border:2px dashed #2563eb;
-        border-radius:10px;
-        padding:20px;
-        margin:20px 0;
-      ">
-        <h1 style="
-          color:#2563eb;
-          letter-spacing:8px;
-          margin:0;
-        ">
-          ${otp}
-        </h1>
-      </div>
-
-      <p style="color:#777;">
-     ⏳ This verification code will expire in <b>2 minutes</b>.
-      </p>
-
-      <p style="
-        color:#999;
-        font-size:13px;
-      ">
-        If you didn't request this, ignore this email.
-      </p>
-
-      <hr style="
-        border:none;
-        border-top:1px solid #eee;
-      ">
-
-      <p style="
-        color:#aaa;
-        font-size:12px;
-      ">
-        © 2026 Taskify
-      </p>
-
-    </div>
-  </div>
-  `,
-    );
-
-    return {
-      success: true,
-      message: 'OTP sent successfully',
-    };
+    return { success: true, message: 'OTP sent successfully' };
   }
-  async updateProfile(user: any, dto: UpdateProfileDto) {
-    const existing = await this.usersService.findById(user.id);
 
-    if (!existing) {
-      throw new HttpException('User not found', HttpStatus.NOT_FOUND);
-    }
+  async updateProfile(authUser: AuthUser, dto: UpdateProfileDto) {
+    const user = await this.findCurrentUser(authUser);
 
-    const updates = {
-      avatar: dto.avatar,
-      dob: dto.dob,
-      gender: dto.gender,
-      bio: dto.bio,
-      phone: dto.phone,
-      isActive: dto.isActive,
-    };
-
-    Object.keys(updates).forEach((key) => {
-      if (updates[key] === undefined) delete updates[key];
-    });
-
-    await this.usersService.updateUser(existing._id, updates);
-
-    const updatedUser = await this.usersService.findById(existing._id);
+    const updates = Object.fromEntries(
+      Object.entries({
+        avatar: dto.avatar,
+        dob: dto.dob,
+        gender: dto.gender,
+        bio: dto.bio,
+        phone: dto.phone,
+        isActive: dto.isActive,
+      }).filter(([, value]) => value !== undefined),
+    );
+    const updatedUser = await this.usersService.updateUser(user._id, updates);
 
     return {
       success: true,
@@ -659,5 +303,84 @@ export class AuthService {
         updatedAt: updatedUser.updatedAt,
       },
     };
+  }
+
+  private async findCurrentUser(authUser: AuthUser): Promise<UserDocument> {
+    const user = await this.usersService.findById(authUser.id);
+    if (!user) {
+      throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+    }
+    return user;
+  }
+
+  private async issueTokens(user: UserDocument) {
+    const sign = (typ: TokenType, expiresIn: string) =>
+      this.jwtService.sign(
+        {
+          username: user.userName,
+          id: String(user._id),
+          sub: String(user._id),
+          roles: user.role,
+          iss: 'Taskify',
+          typ,
+        } as JwtPayload,
+        // Unique id so tokens issued within the same second still differ (needed for rotation).
+        { expiresIn, jwtid: randomUUID() },
+      );
+
+    const accessToken = sign('access', ACCESS_TOKEN_TTL);
+    const refreshToken = sign('refresh', REFRESH_TOKEN_TTL);
+    await this.usersService.setRefreshToken(user._id, refreshToken);
+    return { accessToken, refreshToken };
+  }
+
+  /** A refresh token must be stored (not revoked), correctly signed and unexpired. */
+  private async findUserByValidRefreshToken(
+    token: string,
+  ): Promise<UserDocument | null> {
+    try {
+      const payload = this.jwtService.verify<JwtPayload>(token);
+      if (payload.typ === 'access') return null;
+    } catch {
+      return null;
+    }
+    return this.usersService.findByRefreshToken(token);
+  }
+
+  private toUserResponse(user: UserDocument) {
+    return {
+      _id: user._id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      userName: user.userName,
+      gender: user.gender,
+      dob: user.dob,
+      bio: user.bio ?? null,
+      phone: user.phone ?? null,
+      role: user.role,
+      avatar: user.avatar ?? null,
+      isEmailVerified: user.isEmailVerified,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  }
+
+  private async sendOtpEmail(
+    user: UserDocument,
+    otp: string,
+    purpose: 'verify-email' | 'reset-password',
+  ): Promise<void> {
+    const { subject, text, html } = otpEmail({
+      firstName: user.firstName,
+      otp,
+      purpose,
+      expiresInMinutes:
+        purpose === 'verify-email'
+          ? EMAIL_OTP_TTL_MINUTES
+          : RESET_OTP_TTL_MINUTES,
+    });
+    await this.emailService.sendMail(user.email, subject, text, html);
   }
 }

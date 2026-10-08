@@ -14,12 +14,8 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-export enum Gender {
-  MALE = 'Male',
-  FEMALE = 'Female',
-  OTHER = 'Other',
-  PREFER_NOT_TO_SAY = 'Prefer not to say',
-}
+import { Gender } from './user.dto';
+
 export class RegisterDto {
   @ApiProperty({
     example: 'Shiva',
