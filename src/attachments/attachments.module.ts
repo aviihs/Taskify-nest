@@ -1,26 +1,24 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import {
-  AttachmentSchema,
-  AttachmentSchemaName,
-} from './schemas/attachment.schema';
+import { TasksModule } from '../tasks/tasks.module';
 import { AttachmentsController } from './attachments.controller';
 import { AttachmentsService } from './attachments.service';
-import { AttachmentRepository } from './repositories/attachment.repository';
-import { TaskModule } from '../task/task.module';
-import { NotificationsModule } from '../notifications/notifications.module';
-import { ActivityModule } from '../activity/activity.module';
+import { Attachment, AttachmentSchema } from './schemas/task-attachment.schema';
+import { LocalDiskStorageService } from './storage/local-disk-storage.service';
+import { StorageService } from './storage/storage.service';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
-      { name: AttachmentSchemaName, schema: AttachmentSchema },
+      { name: Attachment.name, schema: AttachmentSchema },
     ]),
-    TaskModule,
-    NotificationsModule,
-    ActivityModule,
+    TasksModule,
   ],
   controllers: [AttachmentsController],
-  providers: [AttachmentsService, AttachmentRepository],
+  providers: [
+    AttachmentsService,
+    // Swap for an S3-compatible implementation without touching the service.
+    { provide: StorageService, useClass: LocalDiskStorageService },
+  ],
 })
 export class AttachmentsModule {}

@@ -1,90 +1,107 @@
 import {
+  BadRequestException,
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Post,
+  Res,
+  StreamableFile,
   UploadedFile,
-  UseGuards,
   UseInterceptors,
-  Res, 
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-
-import { extname } from 'path';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Response } from 'express';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import GetUser from '../common/decorators/get-user.decorator';
-import { AttachmentsService } from './attachments.service';
-import { diskStorage } from 'multer';
+import { memoryStorage } from 'multer';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { ParseObjectIdPipe } from '../common/pipes/parse-object-id.pipe';
+import { AuthUser } from '../common/types/auth-user';
+import {
+  ALLOWED_ATTACHMENT_TYPES,
+  AttachmentsService,
+  MAX_ATTACHMENT_BYTES,
+} from './attachments.service';
 
 @ApiTags('Attachments')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard)
-@Controller('tasks/:taskId/attachments')
+@Controller()
 export class AttachmentsController {
-  constructor(private readonly attachmentsService: AttachmentsService) {}
+  constructor(private readonly attachments: AttachmentsService) {}
 
-  @Post()
-  @ApiOperation({ summary: 'Upload attachment for task' })
+  @Get('tasks/:taskId/attachments')
+  @ApiOperation({ summary: 'List task attachments' })
+  list(
+    @CurrentUser() user: AuthUser,
+    @Param('taskId', ParseObjectIdPipe) taskId: string,
+  ) {
+    return this.attachments.list(user.id, taskId);
+  }
+
+  @Post('tasks/:taskId/attachments')
+  @ApiOperation({ summary: 'Upload a file to a task (max 20 MB)' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: './uploads/task-attachments',
-        filename: (req, file, cb) => {
-          const uniqueSuffix =
-            Date.now() + '-' + Math.round(Math.random() * 1e9);
-          const fileExtName = extname(file.originalname);
-          cb(null, `${uniqueSuffix}${fileExtName}`);
-        },
-      }),
-      limits: { fileSize: 20 * 1024 * 1024 },
-      fileFilter: (req, file, cb) => {
-        const allowed = [
-          'image/jpeg',
-          'image/png',
-          'image/gif',
-          'application/pdf',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'application/zip',
-        ];
-        if (allowed.includes(file.mimetype)) {
-          cb(null, true);
-        } else {
-          cb(new Error('Unsupported file type'), false);
-        }
-      },
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 1 },
+      fileFilter: (_req, file, cb) =>
+        ALLOWED_ATTACHMENT_TYPES.has(file.mimetype)
+          ? cb(null, true)
+          : cb(new BadRequestException('Unsupported file type'), false),
     }),
   )
-  uploadAttachment(
-    @Param('taskId') taskId: string,
-    @GetUser() user: any,
-    @UploadedFile() file: Express.Multer.File,
+  upload(
+    @CurrentUser() user: AuthUser,
+    @Param('taskId', ParseObjectIdPipe) taskId: string,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.attachmentsService.uploadAttachment(taskId, user, file);
+    return this.attachments.upload(user.id, taskId, file);
   }
 
-  @Get()
-  @ApiOperation({ summary: 'List access task attachments' })
-  listAttachments(@Param('taskId') taskId: string) {
-    return this.attachmentsService.listAttachments(taskId);
+  @Get('attachments/:attachmentId/download')
+  @ApiOperation({ summary: 'Download an attachment' })
+  async download(
+    @CurrentUser() user: AuthUser,
+    @Param('attachmentId', ParseObjectIdPipe) attachmentId: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { attachment, stream } = await this.attachments.download(
+      user.id,
+      attachmentId,
+    );
+    res.set({
+      'Content-Type': attachment.mimeType,
+      'Content-Length': String(attachment.size),
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(
+        attachment.fileName,
+      )}`,
+      'X-Content-Type-Options': 'nosniff',
+    });
+    return new StreamableFile(stream);
   }
 
-  @Get(':id/download')
-  @ApiOperation({ summary: 'Download attachment file' })
-  async downloadAttachment(
-    @Param('id') id: string,
-    @GetUser() user: any,
-    @Res() res: Response,
+  @Delete('attachments/:attachmentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete an attachment' })
+  remove(
+    @CurrentUser() user: AuthUser,
+    @Param('attachmentId', ParseObjectIdPipe) attachmentId: string,
   ) {
-    const attachment = await this.attachmentsService.getAttachment(id, user);
-    return res.sendFile(attachment.path, { root: '.' });
-  }
-
-  @Delete(':id')
-  @ApiOperation({ summary: 'Delete attachment by id' })
-  deleteAttachment(@Param('id') id: string, @GetUser() user: any) {
-    return this.attachmentsService.deleteAttachment(id, user);
+    return this.attachments.remove(user.id, attachmentId);
   }
 }
