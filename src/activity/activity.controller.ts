@@ -1,23 +1,46 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import GetUser from '../common/decorators/get-user.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { PaginationQueryDto } from '../common/pagination/pagination';
+import { ParseObjectIdPipe } from '../common/pipes/parse-object-id.pipe';
+import { AuthUser } from '../common/types/auth-user';
 import { ActivityService } from './activity.service';
 
 @ApiTags('Activity')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard)
-@Controller('activity')
+@Controller()
 export class ActivityController {
-  constructor(private readonly activityService: ActivityService) {}
+  constructor(private readonly activity: ActivityService) {}
 
-  @Get()
-  @ApiOperation({ summary: 'List activity logs' })
-  listActivity(@GetUser() user: any, @Query() query: any) {
-    const filter: any = {};
-    if (user.roles !== 'ADMIN') {
-      filter.user = user.id;
-    }
-    return this.activityService.listActivities(filter, query);
+  @Get('workspaces/:workspaceId/activity')
+  @ApiOperation({ summary: 'Workspace activity feed' })
+  forWorkspace(
+    @CurrentUser() user: AuthUser,
+    @Param('workspaceId', ParseObjectIdPipe) workspaceId: string,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.activity.forWorkspace(user.id, workspaceId, query);
+  }
+
+  @Get('projects/:projectId/activity')
+  @ApiOperation({ summary: 'Project activity feed' })
+  forProject(
+    @CurrentUser() user: AuthUser,
+    @Param('projectId', ParseObjectIdPipe) projectId: string,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.activity.forProject(user.id, projectId, query);
+  }
+
+  @Get('tasks/:taskId/activity')
+  @ApiOperation({
+    summary: 'Task history (status, assignee, due date changes, …)',
+  })
+  forTask(
+    @CurrentUser() user: AuthUser,
+    @Param('taskId', ParseObjectIdPipe) taskId: string,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.activity.forTask(user.id, taskId, query);
   }
 }
