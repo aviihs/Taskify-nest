@@ -1,32 +1,44 @@
-import {
-  Controller,
-  Get,
-  Param,
-  Patch,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { ParseObjectIdPipe } from '../common/pipes/parse-object-id.pipe';
+import { AuthUser } from '../common/types/auth-user';
+import { ListNotificationsQueryDto } from './dtos/notification.dto';
 import { NotificationsService } from './notifications.service';
-import GetUser from '../common/decorators/get-user.decorator';
 
 @ApiTags('Notifications')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard)
 @Controller('notifications')
 export class NotificationsController {
-  constructor(private readonly notificationsService: NotificationsService) {}
+  constructor(private readonly notifications: NotificationsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List notifications for authenticated user' })
-  listNotifications(@GetUser() user: any, @Query() query: any) {
-    return this.notificationsService.listNotifications(user.id, query);
+  @ApiOperation({ summary: 'List my notifications' })
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListNotificationsQueryDto,
+  ) {
+    return this.notifications.list(user.id, query);
+  }
+
+  @Get('unread-count')
+  @ApiOperation({ summary: 'Number of unread notifications' })
+  unreadCount(@CurrentUser() user: AuthUser) {
+    return this.notifications.unreadCount(user.id);
+  }
+
+  @Patch('read-all')
+  @ApiOperation({ summary: 'Mark all my notifications as read' })
+  markAllRead(@CurrentUser() user: AuthUser) {
+    return this.notifications.markAllRead(user.id);
   }
 
   @Patch(':id/read')
-  @ApiOperation({ summary: 'Mark notification as read' })
-  markRead(@Param('id') id: string) {
-    return this.notificationsService.markAsRead(id);
+  @ApiOperation({ summary: 'Mark a notification as read' })
+  markRead(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.notifications.markRead(user.id, id);
   }
 }
