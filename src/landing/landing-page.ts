@@ -97,11 +97,9 @@ const ROUTES: Array<[string, string, string]> = [
   ['POST', '/projects/:id/ai/task-breakdown', 'AI task suggestions'],
 ];
 
-const LOGO = `<svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#686fb1"/><stop offset="1" stop-color="#3e425f"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lg)"/><path d="m9.5 16.5 4.5 4.5 8.5-10" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-
-const FAVICON = `data:image/svg+xml,${encodeURIComponent(
-  LOGO.replace('aria-hidden="true"', 'xmlns="http://www.w3.org/2000/svg"'),
-)}`;
+/** Brand mark, served from src/assets (see configureApp). */
+export const LOGO_PATH = '/assets/taskify-logo.png';
+const LOGO = `<span class="logo"><img src="${LOGO_PATH}" alt="" width="40" height="40"></span>`;
 
 const escapeHtml = (value: string): string =>
   value.replace(
@@ -143,7 +141,8 @@ export function renderLandingPage({
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#3e425f">
 <title>Taskify API</title>
-<link rel="icon" href="${FAVICON}">
+<link rel="icon" type="image/png" href="${LOGO_PATH}">
+<link rel="apple-touch-icon" href="${LOGO_PATH}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -198,7 +197,11 @@ export function renderLandingPage({
     max-width: 1120px; margin: 0 auto; padding: 22px 20px; color: #fff;
   }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 18px; letter-spacing: -0.02em; }
-  .brand svg { width: 32px; height: 32px; box-shadow: 0 8px 24px -8px rgb(0 0 0 / 0.5); border-radius: 9px; }
+  .logo {
+    display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px;
+    background: #fff; box-shadow: 0 8px 24px -8px rgb(0 0 0 / 0.5);
+  }
+  .logo img { width: 30px; height: 30px; }
   .nav-links { display: flex; gap: 6px; }
   .nav-links a { padding: 8px 14px; border-radius: 999px; font-size: 14px; font-weight: 500; color: rgb(255 255 255 / 0.8); transition: background-color 0.3s var(--ease), color 0.3s var(--ease); }
   .nav-links a:hover { background: rgb(255 255 255 / 0.12); color: #fff; }
@@ -354,7 +357,8 @@ export function renderLandingPage({
   .cta p { margin-top: 10px; color: rgb(255 255 255 / 0.75); max-width: 30rem; }
   footer { padding: 48px 0 56px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; color: var(--text-muted); font-size: 14px; }
   footer .brand { color: var(--text); font-size: 15px; }
-  footer .brand svg { width: 24px; height: 24px; box-shadow: none; border-radius: 7px; }
+  footer .logo { width: 28px; height: 28px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--border); }
+  footer .logo img { width: 24px; height: 24px; }
 
   @media (min-width: 960px) {
     .hero-grid { grid-template-columns: 1.1fr 1fr; padding: 152px 20px 152px; }

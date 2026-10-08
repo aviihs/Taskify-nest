@@ -4,6 +4,8 @@ import {
   ValidationError,
   ValidationPipe,
 } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 const flattenConstraints = (errors: ValidationError[]): string[] =>
@@ -14,6 +16,11 @@ const flattenConstraints = (errors: ValidationError[]): string[] =>
 
 /** Request pipeline shared by the server and the e2e tests, so tests exercise production behaviour. */
 export function configureApp(app: INestApplication): INestApplication {
+  // Public brand assets (logo/favicon). Copied to dist/assets by nest-cli.
+  (app as NestExpressApplication).useStaticAssets(join(__dirname, 'assets'), {
+    prefix: '/assets/',
+    maxAge: '7d',
+  });
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalPipes(
     new ValidationPipe({
