@@ -1,23 +1,20 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { CommentSchema, CommentSchemaName } from './schemas/comment.schema';
+import { ProjectsModule } from '../projects/projects.module';
+import { TasksModule } from '../tasks/tasks.module';
+import { UsersModule } from '../users/users.module';
 import { CommentsController } from './comments.controller';
 import { CommentsService } from './comments.service';
-import { CommentRepository } from './repositories/comment.repository';
-import { TaskModule } from '../task/task.module';
-import { NotificationsModule } from '../notifications/notifications.module';
-import { ActivityModule } from '../activity/activity.module';
+import { Comment, CommentSchema } from './schemas/task-comment.schema';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([
-      { name: CommentSchemaName, schema: CommentSchema },
-    ]),
-    TaskModule,
-    NotificationsModule,
-    ActivityModule,
+    MongooseModule.forFeature([{ name: Comment.name, schema: CommentSchema }]),
+    TasksModule,
+    ProjectsModule,
+    UsersModule,
   ],
   controllers: [CommentsController],
-  providers: [CommentsService, CommentRepository],
+  providers: [CommentsService],
 })
 export class CommentsModule {}

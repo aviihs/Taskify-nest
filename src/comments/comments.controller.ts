@@ -3,56 +3,67 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
-  UseGuards,
+  Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import GetUser from '../common/decorators/get-user.decorator';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { PaginationQueryDto } from '../common/pagination/pagination';
+import { ParseObjectIdPipe } from '../common/pipes/parse-object-id.pipe';
+import { AuthUser } from '../common/types/auth-user';
 import { CommentsService } from './comments.service';
 import { CreateCommentDto } from './dtos/create-comment.dto';
 import { UpdateCommentDto } from './dtos/update-comment.dto';
 
 @ApiTags('Comments')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard)
-@Controller('tasks/:taskId/comments')
+@Controller()
 export class CommentsController {
-  constructor(private readonly commentsService: CommentsService) {}
+  constructor(private readonly comments: CommentsService) {}
 
-  @Post()
-  @ApiOperation({ summary: 'Add a comment to a task' })
-  @ApiBody({ type: CreateCommentDto })
-  createComment(
-    @Param('taskId') taskId: string,
-    @GetUser() user: any,
+  @Get('tasks/:taskId/comments')
+  @ApiOperation({ summary: 'List task comments (threads with replies)' })
+  list(
+    @CurrentUser() user: AuthUser,
+    @Param('taskId', ParseObjectIdPipe) taskId: string,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.comments.list(user.id, taskId, query);
+  }
+
+  @Post('tasks/:taskId/comments')
+  @ApiOperation({
+    summary: 'Comment on a task (supports @mentions and replies)',
+  })
+  create(
+    @CurrentUser() user: AuthUser,
+    @Param('taskId', ParseObjectIdPipe) taskId: string,
     @Body() dto: CreateCommentDto,
   ) {
-    return this.commentsService.createComment(taskId, user, dto);
+    return this.comments.create(user.id, taskId, dto);
   }
 
-  @Get()
-  @ApiOperation({ summary: 'List comments for a task' })
-  listComments(@Param('taskId') taskId: string) {
-    return this.commentsService.listComments(taskId);
-  }
-
-  @Patch(':commentId')
+  @Patch('comments/:commentId')
   @ApiOperation({ summary: 'Edit a comment' })
-  @ApiBody({ type: UpdateCommentDto })
-  updateComment(
-    @Param('commentId') commentId: string,
-    @GetUser() user: any,
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('commentId', ParseObjectIdPipe) commentId: string,
     @Body() dto: UpdateCommentDto,
   ) {
-    return this.commentsService.updateComment(commentId, user, dto);
+    return this.comments.update(user.id, commentId, dto);
   }
 
-  @Delete(':commentId')
-  @ApiOperation({ summary: 'Delete a comment' })
-  deleteComment(@Param('commentId') commentId: string, @GetUser() user: any) {
-    return this.commentsService.deleteComment(commentId, user);
+  @Delete('comments/:commentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete a comment and its replies' })
+  remove(
+    @CurrentUser() user: AuthUser,
+    @Param('commentId', ParseObjectIdPipe) commentId: string,
+  ) {
+    return this.comments.remove(user.id, commentId);
   }
 }
