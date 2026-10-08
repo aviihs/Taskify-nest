@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { IHealthStatus, IHealthCheck } from './interfaces/health.interface';
+import { IHealthStatus } from './interfaces/health.interface';
 import { HealthCheckDto, SimpleHealthDto } from './dtos/health.dto';
 import { HEALTH_CONSTANTS } from './constants/health.constants';
 
