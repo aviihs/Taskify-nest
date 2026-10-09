@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   NotFoundException,
   Param,
@@ -17,6 +18,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
+import { unlink } from 'fs/promises';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { randomUUID } from 'crypto';
@@ -32,6 +34,12 @@ import { PUBLIC_USER_FIELDS } from './public-user';
 import { UsersService } from './users.service';
 
 const AVATAR_DIR = join(env.uploadDir, 'avatars');
+/** Deletes an uploaded avatar file; external URLs and missing files are ignored. */
+async function removeStoredAvatar(avatar?: string | null): Promise<void> {
+  if (!avatar || /^https?:\/\//.test(avatar)) return;
+  await unlink(avatar).catch(() => undefined);
+}
+
 const AVATAR_MIME_TYPES = [
   'image/jpeg',
   'image/png',
@@ -98,11 +106,23 @@ export class UsersController {
     @UploadedFile() file?: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
+    const previous = await this.usersService.findById(user.id);
     const updated = await this.usersService.updateAvatar(
       user.id,
       join(AVATAR_DIR, file.filename),
     );
+    await removeStoredAvatar(previous?.avatar);
     return { message: 'Avatar uploaded', avatar: updated.avatar };
+  }
+
+  @Delete('me/avatar')
+  @ApiOperation({ summary: 'Remove my avatar' })
+  async removeAvatar(@CurrentUser() user: AuthUser) {
+    const found = await this.usersService.findById(user.id);
+    if (!found) throw new NotFoundException('User not found');
+    await this.usersService.updateAvatar(user.id, null);
+    await removeStoredAvatar(found.avatar);
+    return { message: 'Avatar removed', avatar: null };
   }
 
   @Get(':id')

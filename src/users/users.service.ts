@@ -135,7 +135,10 @@ export class UsersService {
     };
   }
 
-  async updateAvatar(userId: string | Types.ObjectId, avatarPath: string) {
+  async updateAvatar(
+    userId: string | Types.ObjectId,
+    avatarPath: string | null,
+  ) {
     return await this.usersModel.findByIdAndUpdate(
       userId,
       { avatar: avatarPath },
