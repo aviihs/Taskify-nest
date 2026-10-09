@@ -144,19 +144,23 @@ export class InvitationsService {
       workspaceId,
       Permission.MEMBER_INVITE,
     );
-    const result = await this.invitationModel
-      .updateOne(
+    const cancelled = await this.invitationModel
+      .findOneAndUpdate(
         {
           _id: invitationId,
           workspace: workspace._id,
           status: InvitationStatus.PENDING,
         },
         { status: InvitationStatus.CANCELLED, respondedAt: new Date() },
+        { new: true },
       )
+      .lean<InvitationRecord>()
       .exec();
-    if (!result.matchedCount) {
+    if (!cancelled) {
       throw new NotFoundException('Pending invitation not found');
     }
+    const invitee = await this.users.findByEmail(cancelled.email);
+    this.publishClosed('invitation.cancelled', actorId, cancelled, invitee);
   }
 
   /** Pending invitations addressed to the caller's (verified) email. */
@@ -196,7 +200,31 @@ export class InvitationsService {
   }
 
   async decline(userId: string, invitationId: string): Promise<void> {
-    await this.claim(userId, invitationId, InvitationStatus.DECLINED);
+    const declined = await this.claim(
+      userId,
+      invitationId,
+      InvitationStatus.DECLINED,
+    );
+    this.publishClosed('invitation.declined', userId, declined, {
+      _id: userId,
+    });
+  }
+
+  /** Lets both sides (inviter's workspace, invitee's app) refresh live. */
+  private publishClosed(
+    type: 'invitation.declined' | 'invitation.cancelled',
+    actorId: string,
+    invitation: InvitationRecord,
+    invitee: { _id: unknown } | null,
+  ): void {
+    this.events.publish({
+      type,
+      actorId,
+      workspaceId: String(invitation.workspace),
+      entityId: String(invitation._id),
+      email: invitation.email,
+      inviteeUserId: invitee ? String(invitee._id) : null,
+    });
   }
 
   /**

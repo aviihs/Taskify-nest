@@ -85,4 +85,57 @@ describe('Realtime gateway (e2e)', () => {
     });
     expect(await leaked).toBeNull();
   });
+
+  it('keeps both sides of an invitation live: invite, decline, cancel', async () => {
+    const acme = (
+      await ctx.as(owner).post('/workspaces').send({ name: 'Acme' }).expect(201)
+    ).body._id;
+    const admin = await connect(owner.token);
+    expect(await request(admin, 'subscribe', { workspaceId: acme })).toEqual({
+      ok: true,
+    });
+    const invitee = await connect(outsider.token);
+
+    // Invite → invitee hears about it instantly (notification + invitation).
+    const invitedSignal = next<{ type: string }>(invitee, 'invitation');
+    const notified = next(invitee, 'notification');
+    const first = (
+      await ctx
+        .as(owner)
+        .post(`/workspaces/${acme}/invitations`)
+        .send({ email: outsider.email, role: 'MEMBER' })
+        .expect(201)
+    ).body;
+    expect(await invitedSignal).toMatchObject({ type: 'invitation.created' });
+    expect(await notified).toBeTruthy();
+
+    // Decline → the admin's workspace room hears it.
+    const declined = next<{ type: string }>(admin, 'event');
+    await ctx
+      .as(outsider)
+      .post(`/invitations/${first._id}/decline`)
+      .expect(204);
+    expect(await declined).toMatchObject({ type: 'invitation.declined' });
+
+    // Re-invite, then cancel → the invitee hears it.
+    const second = (
+      await ctx
+        .as(owner)
+        .post(`/workspaces/${acme}/invitations`)
+        .send({ email: outsider.email, role: 'VIEWER' })
+        .expect(201)
+    ).body;
+    const cancelled = next<{ type: string }>(invitee, 'invitation');
+    await ctx
+      .as(owner)
+      .delete(`/workspaces/${acme}/invitations/${second._id}`)
+      .expect(204);
+    // The first 'invitation' after re-invite may be the new invite itself.
+    const signal = await cancelled;
+    const final =
+      signal?.type === 'invitation.created'
+        ? await next<{ type: string }>(invitee, 'invitation')
+        : signal;
+    expect(final).toMatchObject({ type: 'invitation.cancelled' });
+  });
 });

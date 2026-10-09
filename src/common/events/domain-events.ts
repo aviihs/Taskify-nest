@@ -47,6 +47,14 @@ export interface InvitationCreatedEvent extends BaseEvent {
   inviteeUserId: string | null;
 }
 
+/** The invitee declined, or an admin cancelled a pending invitation. */
+export interface InvitationClosedEvent extends BaseEvent {
+  type: 'invitation.declined' | 'invitation.cancelled';
+  email: string;
+  /** Set when the invitee has an account, so their app can refresh. */
+  inviteeUserId: string | null;
+}
+
 export interface ProjectCreatedEvent extends BaseEvent {
   type: 'project.created';
   name: string;
@@ -139,6 +147,7 @@ export type DomainEvent =
   | MemberRemovedEvent
   | MemberRoleChangedEvent
   | InvitationCreatedEvent
+  | InvitationClosedEvent
   | ProjectCreatedEvent
   | ProjectUpdatedEvent
   | ProjectDeletedEvent
@@ -170,6 +179,8 @@ export const ALL_DOMAIN_EVENTS: DomainEventType[] = [
   'workspace.member.removed',
   'workspace.member.role_changed',
   'invitation.created',
+  'invitation.declined',
+  'invitation.cancelled',
   'project.created',
   'project.updated',
   'project.deleted',

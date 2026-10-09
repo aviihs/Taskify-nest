@@ -1,4 +1,13 @@
-import { Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '../common/pipes/parse-object-id.pipe';
@@ -31,6 +40,25 @@ export class NotificationsController {
   @ApiOperation({ summary: 'Mark all my notifications as read' })
   markAllRead(@CurrentUser() user: AuthUser) {
     return this.notifications.markAllRead(user.id);
+  }
+
+  @Delete()
+  @ApiOperation({ summary: 'Delete all my notifications (or only read ones)' })
+  removeAll(
+    @CurrentUser() user: AuthUser,
+    @Query('readOnly') readOnly?: string,
+  ) {
+    return this.notifications.removeAll(user.id, readOnly === 'true');
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete one of my notifications' })
+  remove(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.notifications.remove(user.id, id);
   }
 
   @Patch(':id/read')

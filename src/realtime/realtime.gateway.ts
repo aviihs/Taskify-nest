@@ -13,6 +13,8 @@ import { Permission } from '../common/authorization/permissions';
 import {
   ALL_DOMAIN_EVENTS,
   DomainEvent,
+  InvitationClosedEvent,
+  InvitationCreatedEvent,
   MemberRemovedEvent,
   NOTIFICATION_CREATED,
   NotificationCreatedEvent,
@@ -138,6 +140,20 @@ export class RealtimeGateway implements OnGatewayConnection {
     this.server
       .to(rooms.user(event.recipientId))
       .emit('notification', { notificationId: event.notificationId });
+  }
+
+  /**
+   * The invitee is not in the workspace room yet, so invitation changes are
+   * also pushed to their personal room ("refresh your invitations").
+   */
+  @OnDomainEvent('invitation.created', 'invitation.cancelled')
+  pushInvitation(event: InvitationCreatedEvent | InvitationClosedEvent): void {
+    if (!event.inviteeUserId) return;
+    this.server.to(rooms.user(event.inviteeUserId)).emit('invitation', {
+      type: event.type,
+      invitationId: event.entityId,
+      workspaceId: event.workspaceId,
+    });
   }
 
   /** Revoked access must also revoke live subscriptions. */

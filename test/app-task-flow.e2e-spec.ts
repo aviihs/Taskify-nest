@@ -77,9 +77,15 @@ describe('Normal user task flow, as the app sends it (e2e)', () => {
       .send({ assigneeId: user.id })
       .expect(200);
 
-    const mine = (
-      await api().get('/users/me/tasks?view=today&tzOffset=0').expect(200)
-    ).body;
+    const mine =
+      // Same offset the app sends (JS getTimezoneOffset), so "today" is local.
+      (
+        await api()
+          .get(
+            `/users/me/tasks?view=today&tzOffset=${new Date().getTimezoneOffset()}`,
+          )
+          .expect(200)
+      ).body;
     expect(mine.items.map((t: { _id: string }) => t._id)).toContain(task._id);
 
     // Clearing the due date sends an explicit null.

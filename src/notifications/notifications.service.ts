@@ -102,6 +102,29 @@ export class NotificationsService {
     return notification;
   }
 
+  /** Scoped by recipient: users can only delete their own notifications. */
+  async remove(userId: string, notificationId: string): Promise<void> {
+    const result = await this.notificationModel
+      .deleteOne({ _id: notificationId, recipient: toObjectId(userId) })
+      .exec();
+    if (!result.deletedCount) {
+      throw new NotFoundException('Notification not found');
+    }
+  }
+
+  /** Clears the inbox; with `readOnly` keeps unread ones. */
+  async removeAll(
+    userId: string,
+    readOnly = false,
+  ): Promise<{ deleted: number }> {
+    const filter: FilterQuery<Notification> = {
+      recipient: toObjectId(userId),
+    };
+    if (readOnly) filter.readAt = { $ne: null };
+    const result = await this.notificationModel.deleteMany(filter).exec();
+    return { deleted: result.deletedCount };
+  }
+
   async markAllRead(userId: string): Promise<{ updated: number }> {
     const result = await this.notificationModel
       .updateMany(
