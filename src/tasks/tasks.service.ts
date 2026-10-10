@@ -13,6 +13,7 @@ import {
 } from '../projects/project-access.service';
 import { assertDateRange } from '../projects/projects.service';
 import { PUBLIC_USER_SELECT } from '../users/public-user';
+import { UserSchemaName } from '../users/schemas/user.schema';
 import { assertCan } from '../workspaces/workspace-access.service';
 import {
   CreateTaskDto,
@@ -31,7 +32,12 @@ import { EMPTY_PROGRESS, Progress, progressBy } from './task-stats';
 export const TASK_POPULATE: PopulateOptions[] = [
   { path: 'assignees', select: PUBLIC_USER_SELECT },
   // Pre-migration-002 documents; see `assigneesOf`.
-  { path: 'assignee', select: PUBLIC_USER_SELECT, strictPopulate: false },
+  {
+    path: 'assignee',
+    model: UserSchemaName,
+    select: PUBLIC_USER_SELECT,
+    strictPopulate: false,
+  },
   { path: 'labels', select: 'name color' },
 ];
 
