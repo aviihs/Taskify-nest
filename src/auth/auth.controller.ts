@@ -27,7 +27,9 @@ import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
 import { AuthService } from './auth.service';
 
 /** Brute-force protection for credential/OTP endpoints: 10 requests per minute per IP. */
-const CredentialThrottle = () => Throttle(10, 60);
+// const CredentialThrottle = () => Throttle(10, 60);
+const CredentialThrottle = () =>
+  Throttle({ default: { limit: 10, ttl: 60000 } });
 
 @ApiTags('Auth')
 @Controller('auth')

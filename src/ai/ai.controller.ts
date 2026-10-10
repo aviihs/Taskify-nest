@@ -14,7 +14,8 @@ export class AiController {
   constructor(private readonly ai: AiService) {}
 
   @Post()
-  @Throttle(10, 60)
+  // @Throttle(10, 60)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary: 'Suggest tasks and subtasks for a goal (nothing is saved)',
   })

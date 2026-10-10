@@ -31,7 +31,13 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     CommonModule,
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot({ ttl: 60, limit: 120 }),
+    // ThrottlerModule.forRoot({ ttl: 60, limit: 120 }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 120,
+      },
+    ]),
     HealthModule,
     AuthModule,
     UsersModule,
