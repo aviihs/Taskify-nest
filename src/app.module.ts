@@ -11,7 +11,6 @@ import { AttachmentsModule } from './attachments/attachments.module';
 import { AuthModule } from './auth/auth.module';
 import { CommentsModule } from './comments/comments.module';
 import { CommonModule } from './common/common.module';
-import { RolesGuard } from './common/guards/roles.guard';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
@@ -54,9 +53,12 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
   controllers: [AppController],
   providers: [
     AppService,
-    // Order matters: JwtAuthGuard (registered in AuthModule) authenticates first.
+    // JwtAuthGuard is registered globally in AuthModule. RolesGuard is NOT
+    // global: global guards from the root module run before AuthModule's, so
+    // `request.user` would not exist yet and every admin route returned 403.
+    // It is applied with @UseGuards on the platform-admin controllers instead,
+    // which always run after the global JwtAuthGuard.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
-    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AppModule {}
