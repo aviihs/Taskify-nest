@@ -12,13 +12,15 @@ import { canManageRole, Permission } from '../common/authorization/permissions';
 import { DomainEventPublisher } from '../common/events/domain-event-publisher';
 import { paginate, Paginated } from '../common/pagination/pagination';
 import { isDuplicateKeyError } from '../common/utils/mongo-errors';
-import { PUBLIC_USER_SELECT } from '../users/public-user';
+import { PUBLIC_USER_SELECT, PublicUser } from '../users/public-user';
 import { UsersService } from '../users/users.service';
 import { WorkspaceType } from '../workspaces/schemas/workspace.schema';
 import { WorkspaceAccessService } from '../workspaces/workspace-access.service';
 import { WorkspaceMembersService } from '../workspaces/workspace-members.service';
 import {
   CreateInvitationDto,
+  InviteeSearchQueryDto,
+  InviteeStatus,
   ListInvitationsQueryDto,
 } from './dtos/invitation.dto';
 import {
@@ -28,6 +30,9 @@ import {
 } from './schemas/invitation.schema';
 
 export const INVITATION_TTL_DAYS = 7;
+const INVITEE_SEARCH_LIMIT = 10;
+
+export type InviteeCandidate = PublicUser & { inviteStatus: InviteeStatus };
 
 @Injectable()
 export class InvitationsService {
@@ -60,9 +65,10 @@ export class InvitationsService {
     }
 
     const [invitee, inviter] = await Promise.all([
-      this.users.findByEmail(dto.email),
+      this.findInvitee(dto),
       this.users.findById(actorId),
     ]);
+    const email = invitee?.email ?? dto.email;
     if (
       invitee &&
       (await this.access.isActiveMember(access.workspace._id, invitee._id))
@@ -71,25 +77,23 @@ export class InvitationsService {
     }
 
     // Free the unique "one pending invite" slot if the previous one lapsed.
-    await this.expireStale({
-      workspace: access.workspace._id,
-      email: dto.email,
-    });
+    await this.expireStale({ workspace: access.workspace._id, email });
 
     let invitation: InvitationRecord;
     try {
       const created = await this.invitationModel.create({
         workspace: access.workspace._id,
-        email: dto.email,
+        email,
         role: dto.role,
         invitedBy: actorId,
+        invitee: invitee?._id ?? null,
         expiresAt: new Date(Date.now() + INVITATION_TTL_DAYS * 86_400_000),
       });
       invitation = created.toObject() as InvitationRecord;
     } catch (error) {
       if (isDuplicateKeyError(error)) {
         throw new ConflictException(
-          'A pending invitation already exists for this email',
+          'This person already has a pending invitation',
         );
       }
       throw error;
@@ -130,8 +134,57 @@ export class InvitationsService {
         ...(query.status && { status: query.status }),
       },
       query,
-      { populate: { path: 'invitedBy', select: PUBLIC_USER_SELECT } },
+      {
+        populate: [
+          { path: 'invitedBy', select: PUBLIC_USER_SELECT },
+          { path: 'invitee', select: PUBLIC_USER_SELECT },
+        ],
+      },
     ) as Promise<Paginated<InvitationRecord>>;
+  }
+
+  /** Username/name search for the invite picker, flagged with each person's status here. */
+  async searchInvitees(
+    actorId: string,
+    workspaceId: string,
+    query: InviteeSearchQueryDto,
+  ): Promise<InviteeCandidate[]> {
+    const { workspace } = await this.access.authorize(
+      actorId,
+      workspaceId,
+      Permission.MEMBER_INVITE,
+    );
+    const users = await this.users.searchByUserName(
+      query.q,
+      INVITEE_SEARCH_LIMIT,
+      actorId,
+    );
+    if (!users.length) return [];
+
+    await this.expireStale({ workspace: workspace._id });
+    const [memberIds, pending] = await Promise.all([
+      this.access.coMemberIds([workspace._id]),
+      this.invitationModel
+        .find({
+          workspace: workspace._id,
+          status: InvitationStatus.PENDING,
+          email: { $in: users.map((u) => u.email) },
+        })
+        .select('email')
+        .lean<InvitationRecord[]>()
+        .exec(),
+    ]);
+    const members = new Set(memberIds.map(String));
+    const invited = new Set(pending.map((i) => i.email));
+
+    return users.map((user) => ({
+      ...user,
+      inviteStatus: members.has(String(user._id))
+        ? InviteeStatus.MEMBER
+        : invited.has(user.email)
+        ? InviteeStatus.INVITED
+        : InviteeStatus.AVAILABLE,
+    }));
   }
 
   async cancel(
@@ -284,6 +337,23 @@ export class InvitationsService {
         { status: InvitationStatus.EXPIRED },
       )
       .exec();
+  }
+
+  private async findInvitee(dto: CreateInvitationDto) {
+    if (dto.email !== undefined && dto.userName !== undefined) {
+      throw new BadRequestException(
+        'Provide either email or userName, not both',
+      );
+    }
+    if (dto.userName === undefined) return this.users.findByEmail(dto.email);
+
+    const user = await this.users.findByUserName(dto.userName);
+    if (!user || !user.isActive) {
+      throw new NotFoundException(
+        `No user found with username "${dto.userName}"`,
+      );
+    }
+    return user;
   }
 
   private async emailOf(userId: string): Promise<string> {

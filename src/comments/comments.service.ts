@@ -15,7 +15,7 @@ import {
 } from '../common/pagination/pagination';
 import { idEquals, toObjectId } from '../common/utils/query';
 import { ProjectAccessService } from '../projects/project-access.service';
-import { TaskRecord } from '../tasks/schemas/task.schema';
+import { assigneesOf, TaskRecord } from '../tasks/schemas/task.schema';
 import { TaskAccess, TaskAccessService } from '../tasks/task-access.service';
 import { PUBLIC_USER_SELECT } from '../users/public-user';
 import { UsersService } from '../users/users.service';
@@ -103,10 +103,9 @@ export class CommentsService {
       mentions,
     });
 
-    const watchers = [task.createdBy, task.assignee]
-      .filter((id): id is Types.ObjectId => Boolean(id))
-      .map(String)
-      .filter((id) => id !== userId);
+    const watchers = [
+      ...new Set([task.createdBy, ...assigneesOf(task)].map(String)),
+    ].filter((id) => id !== userId);
     this.events.publish({
       type: 'comment.created',
       actorId: userId,

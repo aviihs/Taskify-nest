@@ -146,15 +146,68 @@ describe('Projects, tasks, subtasks, labels, dependencies & search (e2e)', () =>
       await ctx
         .as(owner)
         .patch(`/tasks/${taskId}`)
-        .send({ assigneeId: outsider.id })
+        .send({ assigneeIds: [member.id, outsider.id] })
+        .expect(400);
+      await ctx
+        .as(owner)
+        .patch(`/tasks/${taskId}`)
+        .send({ assigneeIds: [member.id, member.id] })
         .expect(400);
       const res = await ctx
         .as(owner)
         .patch(`/tasks/${taskId}`)
-        .send({ assigneeId: member.id })
+        .send({ assigneeIds: [member.id] })
         .expect(200);
-      expect(res.body.assignee).toMatchObject({ _id: member.id });
-      expect(res.body.assignee).not.toHaveProperty('password');
+      expect(res.body.assignees).toEqual([
+        expect.objectContaining({ _id: member.id }),
+      ]);
+      expect(res.body.assignees[0]).not.toHaveProperty('password');
+    });
+
+    it('assign several people, filter by any of them, and unassign', async () => {
+      const res = await ctx
+        .as(owner)
+        .patch(`/tasks/${taskId}`)
+        .send({ assigneeIds: [member.id, manager.id] })
+        .expect(200);
+      expect(res.body.assignees.map((u) => u._id).sort()).toEqual(
+        [member.id, manager.id].sort(),
+      );
+
+      for (const user of [member, manager]) {
+        const list = await ctx
+          .as(owner)
+          .get(`/projects/${project}/tasks?assigneeId=${user.id}`)
+          .expect(200);
+        expect(list.body.items.map((t) => t._id)).toContain(taskId);
+      }
+      const mine = await ctx.as(manager).get('/users/me/tasks').expect(200);
+      expect(mine.body.items.map((t) => t._id)).toContain(taskId);
+
+      const history = await ctx
+        .as(owner)
+        .get(`/tasks/${taskId}/activity`)
+        .expect(200);
+      expect(
+        history.body.items.some((a) => a.metadata?.changes?.assignees),
+      ).toBe(true);
+
+      // Keep `member` assigned for the tests below.
+      await ctx
+        .as(owner)
+        .patch(`/tasks/${taskId}`)
+        .send({ assigneeIds: [] })
+        .expect(200);
+      const none = await ctx
+        .as(owner)
+        .get(`/projects/${project}/tasks?assigneeId=none`)
+        .expect(200);
+      expect(none.body.items.map((t) => t._id)).toContain(taskId);
+      await ctx
+        .as(owner)
+        .patch(`/tasks/${taskId}`)
+        .send({ assigneeIds: [member.id] })
+        .expect(200);
     });
 
     it('enforce role permissions (members cannot delete)', async () => {
@@ -376,7 +429,11 @@ describe('Projects, tasks, subtasks, labels, dependencies & search (e2e)', () =>
       const yesterday = new Date(Date.now() - 86_400_000).toISOString();
       await createTask(
         member,
-        { title: 'Overdue chore', assigneeId: member.id, dueDate: yesterday },
+        {
+          title: 'Overdue chore',
+          assigneeIds: [member.id],
+          dueDate: yesterday,
+        },
         mine,
       ).expect(201);
 
@@ -385,9 +442,11 @@ describe('Projects, tasks, subtasks, labels, dependencies & search (e2e)', () =>
       expect(titles).toEqual(
         expect.arrayContaining(['Overdue chore', 'Implement login']),
       );
-      expect(all.body.items.every((t) => t.assignee._id === member.id)).toBe(
-        true,
-      );
+      expect(
+        all.body.items.every((t) =>
+          t.assignees.some((u) => u._id === member.id),
+        ),
+      ).toBe(true);
 
       const overdue = await ctx
         .as(member)

@@ -62,7 +62,7 @@ export class TasksController {
 
   @Get('tasks/:taskId')
   @ApiOperation({
-    summary: 'Get a task with assignee, labels and subtask progress',
+    summary: 'Get a task with assignees, labels and subtask progress',
   })
   get(
     @CurrentUser() user: AuthUser,
@@ -73,7 +73,7 @@ export class TasksController {
 
   @Patch('tasks/:taskId')
   @ApiOperation({
-    summary: 'Update a task (status, priority, assignee, labels, dates, …)',
+    summary: 'Update a task (status, priority, assignees, labels, dates, …)',
   })
   update(
     @CurrentUser() user: AuthUser,

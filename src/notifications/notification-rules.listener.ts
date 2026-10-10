@@ -30,9 +30,8 @@ export class NotificationRulesListener {
 
   @OnDomainEvent('task.created')
   async onTaskCreated(event: TaskCreatedEvent): Promise<void> {
-    if (!event.assigneeId) return;
     await this.notifications.notify({
-      recipientIds: [event.assigneeId],
+      recipientIds: event.assigneeIds,
       type: NotificationType.TASK_ASSIGNED,
       message: `You were assigned "${event.title}"`,
       actorId: event.actorId,
@@ -52,21 +51,17 @@ export class NotificationRulesListener {
       entityId: event.entityId,
       link: taskLink(event.entityId),
     };
-    if (event.changes.assignee && event.assigneeId) {
-      await this.notifications.notify({
-        ...base,
-        recipientIds: [event.assigneeId],
-        type: NotificationType.TASK_ASSIGNED,
-        message: `You were assigned "${event.title}"`,
-      });
-    }
+    await this.notifications.notify({
+      ...base,
+      recipientIds: event.addedAssigneeIds,
+      type: NotificationType.TASK_ASSIGNED,
+      message: `You were assigned "${event.title}"`,
+    });
     const status = event.changes.status;
     if (status) {
       await this.notifications.notify({
         ...base,
-        recipientIds: [event.createdById, event.assigneeId].filter(
-          (id): id is string => Boolean(id),
-        ),
+        recipientIds: [event.createdById, ...event.assigneeIds],
         type: NotificationType.TASK_STATUS_CHANGED,
         message: `"${event.title}" moved ${status.from} → ${status.to}`,
       });

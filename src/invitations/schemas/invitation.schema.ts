@@ -26,6 +26,10 @@ export class WorkspaceInvitation {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   invitedBy: Types.ObjectId;
 
+  /** The account the invitation was sent to, when one existed at invite time. */
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
+  invitee: Types.ObjectId | null;
+
   @Prop({
     type: String,
     enum: Object.values(InvitationStatus),

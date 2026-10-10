@@ -34,7 +34,7 @@ export class ActivityController {
 
   @Get('tasks/:taskId/activity')
   @ApiOperation({
-    summary: 'Task history (status, assignee, due date changes, …)',
+    summary: 'Task history (status, assignees, due date changes, …)',
   })
   forTask(
     @CurrentUser() user: AuthUser,

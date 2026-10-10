@@ -86,7 +86,7 @@ export interface ProjectMemberRemovedEvent extends BaseEvent {
 export interface TaskCreatedEvent extends BaseEvent {
   type: 'task.created';
   title: string;
-  assigneeId: string | null;
+  assigneeIds: string[];
   parentTaskId: string | null;
 }
 
@@ -94,7 +94,9 @@ export interface TaskUpdatedEvent extends BaseEvent {
   type: 'task.updated';
   title: string;
   createdById: string;
-  assigneeId: string | null;
+  assigneeIds: string[];
+  /** Assignees added by this update; they get an "assigned" notification. */
+  addedAssigneeIds: string[];
   changes: Record<string, FieldChange>;
 }
 
@@ -106,7 +108,7 @@ export interface TaskDeletedEvent extends BaseEvent {
 export interface CommentCreatedEvent extends BaseEvent {
   type: 'comment.created';
   taskTitle: string;
-  /** Users following the task (creator + assignee), excluding the actor. */
+  /** Users following the task (creator + assignees), excluding the actor. */
   watcherIds: string[];
   mentionedUserIds: string[];
 }

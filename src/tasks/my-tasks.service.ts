@@ -34,7 +34,7 @@ export class MyTasksService {
     if (!projectIds.length) return { items: [], meta: pageMeta(query, 0) };
 
     const filter: FilterQuery<Task> = {
-      assignee: toObjectId(userId),
+      assignees: toObjectId(userId),
       project: { $in: projectIds },
       deletedAt: null,
       ...this.viewFilter(query.view, query.tzOffset),

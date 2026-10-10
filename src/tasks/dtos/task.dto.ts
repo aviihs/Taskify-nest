@@ -8,6 +8,7 @@ import {
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsDate,
@@ -33,6 +34,8 @@ const toArray = ({ value }: { value: unknown }) =>
     : (Array.isArray(value) ? value : String(value).split(','))
         .map((v) => String(v).trim())
         .filter(Boolean);
+
+export const MAX_ASSIGNEES = 20;
 
 const toBoolean = ({ value }: { value: unknown }) =>
   value === undefined ? undefined : value === true || value === 'true';
@@ -61,12 +64,15 @@ export class CreateTaskDto {
   priority?: TaskPriority;
 
   @ApiPropertyOptional({
-    description: 'User id, or null to unassign',
-    nullable: true,
+    type: [String],
+    description: 'User ids working on the task; [] to unassign everyone',
   })
   @IsOptional()
-  @IsMongoId()
-  assigneeId?: string | null;
+  @IsArray()
+  @ArrayMaxSize(MAX_ASSIGNEES)
+  @ArrayUnique()
+  @IsMongoId({ each: true })
+  assigneeIds?: string[];
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
@@ -132,7 +138,8 @@ export class ListTasksQueryDto extends PaginationQueryDto {
   priority?: TaskPriority[];
 
   @ApiPropertyOptional({
-    description: "User id, 'me', or 'none' for unassigned",
+    description:
+      "Tasks assigned to this user id (or 'me'), or 'none' for unassigned",
   })
   @IsOptional()
   @IsString()

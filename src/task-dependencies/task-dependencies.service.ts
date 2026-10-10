@@ -22,7 +22,7 @@ import {
 
 type TaskSummary = Pick<
   TaskRecord,
-  '_id' | 'title' | 'status' | 'assignee' | 'dueDate'
+  '_id' | 'title' | 'status' | 'assignees' | 'dueDate'
 >;
 
 export interface DependencyEdgeView {
@@ -64,7 +64,7 @@ export class TaskDependenciesService {
     );
     const tasks = await this.taskModel
       .find({ _id: { $in: otherIds }, deletedAt: null })
-      .select('title status assignee dueDate')
+      .select('title status assignees dueDate')
       .lean<TaskSummary[]>()
       .exec();
     const byId = new Map(tasks.map((t) => [String(t._id), t]));

@@ -74,7 +74,7 @@ describe('Normal user task flow, as the app sends it (e2e)', () => {
     // Personal workspace: the owner can assign to themselves.
     await api()
       .patch(`/tasks/${task._id}`)
-      .send({ assigneeId: user.id })
+      .send({ assigneeIds: [user.id] })
       .expect(200);
 
     const mine =

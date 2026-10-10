@@ -77,7 +77,7 @@ export class SearchService {
         $or: [{ title: regex }, { description: regex }],
       })
       .select(
-        'title status priority dueDate project workspace parentTask assignee',
+        'title status priority dueDate project workspace parentTask assignees',
       )
       .populate({ path: 'project', select: 'name' })
       .sort({ updatedAt: -1 })

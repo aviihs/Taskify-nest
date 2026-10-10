@@ -14,6 +14,11 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import {
+  normalizeUserName,
+  USERNAME_PATTERN,
+  USERNAME_PATTERN_MESSAGE,
+} from '../username';
 import { Gender } from './user.dto';
 
 export class RegisterDto {
@@ -47,16 +52,14 @@ export class RegisterDto {
 
   @ApiProperty({
     example: 'shivabhusal',
-    description: 'Unique username',
+    description: 'Unique username (case-insensitive, stored lowercase)',
   })
+  @Transform(({ value }) => normalizeUserName(value))
   @IsString()
   @IsNotEmpty()
   @MinLength(3)
   @MaxLength(30)
-  @Matches(/^[a-zA-Z0-9_.]+$/, {
-    message:
-      'Username can only contain letters, numbers, underscores, and periods.',
-  })
+  @Matches(USERNAME_PATTERN, { message: USERNAME_PATTERN_MESSAGE })
   userName: string;
 
   @ApiPropertyOptional({

@@ -151,6 +151,84 @@ describe('Workspaces, membership & invitations (e2e)', () => {
     await ctx.as(newcomer).get(`/workspaces/${acme}`).expect(200);
   });
 
+  it("invites by username, picked from a search with each person's status", async () => {
+    const gina = await ctx.signUp('gina');
+    const ginaPrefix = gina.userName.slice(0, 7); // "gina_" + 2 chars of suffix
+
+    // Case-insensitive prefix search; the caller is never suggested.
+    const found = (
+      await ctx
+        .as(alice)
+        .get(
+          `/workspaces/${acme}/invitations/candidates?q=${ginaPrefix.toUpperCase()}`,
+        )
+        .expect(200)
+    ).body;
+    expect(found[0]).toMatchObject({
+      _id: gina.id,
+      userName: gina.userName,
+      inviteStatus: 'AVAILABLE',
+    });
+    expect(found[0]).not.toHaveProperty('password');
+    const self = (
+      await ctx
+        .as(alice)
+        .get(`/workspaces/${acme}/invitations/candidates?q=alice`)
+        .expect(200)
+    ).body;
+    expect(self.map((u) => u._id)).not.toContain(alice.id);
+
+    const inv = await ctx
+      .as(alice)
+      .post(`/workspaces/${acme}/invitations`)
+      .send({ userName: gina.userName.toUpperCase(), role: 'MEMBER' })
+      .expect(201);
+    expect(inv.body).toMatchObject({ email: gina.email, invitee: gina.id });
+    await ctx
+      .as(alice)
+      .post(`/workspaces/${acme}/invitations`)
+      .send({ userName: gina.userName, role: 'MEMBER' })
+      .expect(409);
+
+    const invited = (
+      await ctx
+        .as(alice)
+        .get(`/workspaces/${acme}/invitations/candidates?q=${gina.userName}`)
+        .expect(200)
+    ).body;
+    expect(invited[0].inviteStatus).toBe('INVITED');
+
+    await ctx.as(gina).post(`/invitations/${inv.body._id}/accept`).expect(201);
+    const joined = (
+      await ctx
+        .as(alice)
+        .get(`/workspaces/${acme}/invitations/candidates?q=${gina.userName}`)
+        .expect(200)
+    ).body;
+    expect(joined[0].inviteStatus).toBe('MEMBER');
+
+    await ctx
+      .as(alice)
+      .post(`/workspaces/${acme}/invitations`)
+      .send({ userName: 'nobody_by_this_name', role: 'MEMBER' })
+      .expect(404);
+    await ctx
+      .as(alice)
+      .post(`/workspaces/${acme}/invitations`)
+      .send({ email: gina.email, userName: gina.userName, role: 'MEMBER' })
+      .expect(400);
+    await ctx
+      .as(alice)
+      .post(`/workspaces/${acme}/invitations`)
+      .send({ role: 'MEMBER' })
+      .expect(400);
+    // Plain members cannot browse people to invite.
+    await ctx
+      .as(bob)
+      .get(`/workspaces/${acme}/invitations/candidates?q=gina`)
+      .expect(403);
+  });
+
   it('blocks members without permission from inviting or managing members', async () => {
     const erin = await ctx.signUp('erin');
     await invite(bob, acme, erin.email, 'MEMBER').expect(403);

@@ -36,11 +36,11 @@ export class TaskCleanupListener {
       .updateMany(
         {
           workspace: toObjectId(event.workspaceId),
-          assignee: toObjectId(event.userId),
+          assignees: toObjectId(event.userId),
           status: { $ne: TaskStatus.DONE },
           deletedAt: null,
         },
-        { assignee: null },
+        { $pull: { assignees: toObjectId(event.userId) } },
       )
       .exec();
   }

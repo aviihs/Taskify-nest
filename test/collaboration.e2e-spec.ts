@@ -48,7 +48,7 @@ describe('Comments, notifications, attachments, activity & dashboard (e2e)', () 
       await ctx
         .as(owner)
         .post(`/projects/${project}/tasks`)
-        .send({ title: 'Ship it', assigneeId: dev.id })
+        .send({ title: 'Ship it', assigneeIds: [dev.id] })
         .expect(201)
     ).body._id;
   });
@@ -296,7 +296,7 @@ describe('Comments, notifications, attachments, activity & dashboard (e2e)', () 
       await ctx
         .as(owner)
         .post(`/projects/${project}/tasks`)
-        .send({ title: 'Late', assigneeId: dev.id, dueDate: yesterday })
+        .send({ title: 'Late', assigneeIds: [dev.id], dueDate: yesterday })
         .expect(201);
       await ctx
         .as(owner)
@@ -345,7 +345,7 @@ describe('Comments, notifications, attachments, activity & dashboard (e2e)', () 
       await settle();
       await ctx.as(dev).get(`/projects/${project}`).expect(404);
       const t = await ctx.as(owner).get(`/tasks/${task}`).expect(200);
-      expect(t.body.assignee).toBeNull();
+      expect(t.body.assignees).toEqual([]);
       const mine = await ctx.as(dev).get('/users/me/tasks').expect(200);
       expect(mine.body.items).toHaveLength(0);
     });

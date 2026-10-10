@@ -49,7 +49,7 @@ export class AuthService {
 
   async register(dto: RegisterDto) {
     const email = normalizeEmail(dto.email);
-    const userName = dto.userName.trim();
+    const userName = dto.userName.trim().toLowerCase();
 
     if (await this.usersService.findByEmail(email)) {
       throw new ConflictException('Email already exists');

@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
 import { User } from './dtos/user.dto';
 import { UserSchemaName } from './schemas/user.schema';
-import { containsInsensitive } from '../common/utils/query';
-import { PUBLIC_USER_FIELDS } from './public-user';
+import { isDuplicateKeyError } from '../common/utils/mongo-errors';
+import { containsInsensitive, escapeRegex } from '../common/utils/query';
+import { PUBLIC_USER_FIELDS, PublicUser } from './public-user';
 
 @Injectable()
 export class UsersService {
@@ -23,17 +24,55 @@ export class UsersService {
   }
 
   async findByUserName(userName: string) {
-    return await this.usersModel.findOne({ userName, isDeleted: false });
+    return await this.usersModel.findOne({
+      userName: userName.trim().toLowerCase(),
+      isDeleted: false,
+    });
   }
 
   /** Resolves @mentions; returns only active accounts. */
   async findIdsByUserNames(userNames: string[]): Promise<Types.ObjectId[]> {
     if (!userNames.length) return [];
     const users = await this.usersModel
-      .find({ userName: { $in: userNames }, isDeleted: false })
+      .find({
+        userName: { $in: userNames.map((n) => n.toLowerCase()) },
+        isDeleted: false,
+      })
       .select('_id')
       .lean();
     return users.map((u) => u._id as Types.ObjectId);
+  }
+
+  /**
+   * People search for pickers: username prefix first, then first/last name
+   * prefix. Only active accounts; exact username match is ranked first.
+   */
+  async searchByUserName(
+    query: string,
+    limit: number,
+    excludeId?: string,
+  ): Promise<PublicUser[]> {
+    const prefix = new RegExp(`^${escapeRegex(query.trim())}`, 'i');
+    const users = await this.usersModel
+      .find({
+        isDeleted: false,
+        isActive: true,
+        ...(excludeId && { _id: { $ne: excludeId } }),
+        $or: [
+          { userName: prefix },
+          { firstName: prefix },
+          { lastName: prefix },
+        ],
+      })
+      .select(PUBLIC_USER_FIELDS)
+      .sort({ userName: 1 })
+      .limit(limit * 2)
+      .lean<PublicUser[]>();
+
+    const needle = query.trim().toLowerCase();
+    const rank = (u: PublicUser) =>
+      u.userName === needle ? 0 : u.userName.startsWith(needle) ? 1 : 2;
+    return users.sort((a, b) => rank(a) - rank(b)).slice(0, limit);
   }
 
   async findById(id: string | Types.ObjectId) {
@@ -93,9 +132,21 @@ export class UsersService {
   }
 
   async updateUser(userId: string | Types.ObjectId, update: Partial<User>) {
-    return await this.usersModel.findByIdAndUpdate(userId, update, {
-      new: true,
-    });
+    try {
+      return await this.usersModel.findByIdAndUpdate(userId, update, {
+        new: true,
+      });
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        const field = Object.keys(error.keyPattern ?? {})[0];
+        throw new ConflictException(
+          field === 'userName'
+            ? 'Username already exists'
+            : 'Email already exists',
+        );
+      }
+      throw error;
+    }
   }
 
   async listUsers(query: {

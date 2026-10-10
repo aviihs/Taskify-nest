@@ -10,7 +10,7 @@ import { NotificationType } from './schemas/user-notification.schema';
 const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 const BATCH_SIZE = 200;
 
-/** Notifies assignees once when an open task is due within 24 hours. */
+/** Notifies every assignee once when an open task is due within 24 hours. */
 @Injectable()
 export class DueDateReminderScheduler {
   private readonly logger = new Logger(DueDateReminderScheduler.name);
@@ -31,7 +31,7 @@ export class DueDateReminderScheduler {
           .findOneAndUpdate(
             {
               deletedAt: null,
-              assignee: { $ne: null },
+              'assignees.0': { $exists: true },
               status: { $ne: TaskStatus.DONE },
               dueReminderSentAt: null,
               dueDate: {
@@ -46,15 +46,17 @@ export class DueDateReminderScheduler {
           .exec();
         if (!task) break;
 
-        // Skip tasks whose project/workspace was deleted or the assignee lost access.
-        if (
-          await this.projectAccess.canAccess(
-            String(task.assignee),
-            task.project,
-          )
-        ) {
+        // Skip assignees who lost access (or whose project/workspace was deleted).
+        const assigneeIds = task.assignees.map(String);
+        const canAccess = await Promise.all(
+          assigneeIds.map((id) =>
+            this.projectAccess.canAccess(id, task.project),
+          ),
+        );
+        const recipientIds = assigneeIds.filter((_, i) => canAccess[i]);
+        if (recipientIds.length) {
           await this.notifications.notify({
-            recipientIds: [String(task.assignee)],
+            recipientIds,
             type: NotificationType.TASK_DUE_SOON,
             message: `"${task.title}" is due soon`,
             workspaceId: String(task.workspace),

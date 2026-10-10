@@ -15,6 +15,7 @@ import { ParseObjectIdPipe } from '../common/pipes/parse-object-id.pipe';
 import { AuthUser } from '../common/types/auth-user';
 import {
   CreateInvitationDto,
+  InviteeSearchQueryDto,
   ListInvitationsQueryDto,
 } from './dtos/invitation.dto';
 import { InvitationsService } from './invitations.service';
@@ -27,7 +28,7 @@ export class InvitationsController {
 
   @Post('workspaces/:workspaceId/invitations')
   @ApiOperation({
-    summary: 'Invite someone to an organization workspace by email',
+    summary: 'Invite someone to an organization workspace by email or username',
   })
   create(
     @CurrentUser() user: AuthUser,
@@ -45,6 +46,19 @@ export class InvitationsController {
     @Query() query: ListInvitationsQueryDto,
   ) {
     return this.invitations.listForWorkspace(user.id, workspaceId, query);
+  }
+
+  @Get('workspaces/:workspaceId/invitations/candidates')
+  @ApiOperation({
+    summary:
+      'Search people to invite by username or name (up to 10), each flagged AVAILABLE / INVITED / MEMBER',
+  })
+  searchInvitees(
+    @CurrentUser() user: AuthUser,
+    @Param('workspaceId', ParseObjectIdPipe) workspaceId: string,
+    @Query() query: InviteeSearchQueryDto,
+  ) {
+    return this.invitations.searchInvitees(user.id, workspaceId, query);
   }
 
   @Delete('workspaces/:workspaceId/invitations/:invitationId')

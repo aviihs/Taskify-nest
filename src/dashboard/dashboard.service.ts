@@ -203,13 +203,15 @@ export class DashboardService {
           $match: {
             project: { $in: projectIds },
             deletedAt: null,
-            assignee: { $ne: null },
+            'assignees.0': { $exists: true },
             status: { $ne: TaskStatus.DONE },
           },
         },
+        // A task shared by several people counts toward each one's workload.
+        { $unwind: '$assignees' },
         {
           $group: {
-            _id: '$assignee',
+            _id: '$assignees',
             open: { $sum: 1 },
             overdue: {
               $sum: {

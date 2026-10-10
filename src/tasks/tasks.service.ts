@@ -5,11 +5,7 @@ import { Permission } from '../common/authorization/permissions';
 import { DomainEventPublisher } from '../common/events/domain-event-publisher';
 import { paginate, Paginated } from '../common/pagination/pagination';
 import { diffChanges } from '../common/utils/diff';
-import {
-  containsInsensitive,
-  idEquals,
-  toObjectId,
-} from '../common/utils/query';
+import { containsInsensitive, toObjectId } from '../common/utils/query';
 import { LabelsService } from '../labels/labels.service';
 import {
   ProjectAccess,
@@ -23,12 +19,19 @@ import {
   ListTasksQueryDto,
   UpdateTaskDto,
 } from './dtos/task.dto';
-import { Task, TaskRecord, TaskStatus } from './schemas/task.schema';
+import {
+  assigneesOf,
+  Task,
+  TaskRecord,
+  TaskStatus,
+} from './schemas/task.schema';
 import { TaskAccessService } from './task-access.service';
 import { EMPTY_PROGRESS, Progress, progressBy } from './task-stats';
 
 export const TASK_POPULATE: PopulateOptions[] = [
-  { path: 'assignee', select: PUBLIC_USER_SELECT },
+  { path: 'assignees', select: PUBLIC_USER_SELECT },
+  // Pre-migration-002 documents; see `assigneesOf`.
+  { path: 'assignee', select: PUBLIC_USER_SELECT, strictPopulate: false },
   { path: 'labels', select: 'name color' },
 ];
 
@@ -60,7 +63,8 @@ export class TasksService {
     const parentTask = dto.parentTaskId
       ? await this.resolveParent(project._id, dto.parentTaskId)
       : null;
-    if (dto.assigneeId) await this.assertAssignable(access, dto.assigneeId);
+    const assigneeIds = dto.assigneeIds ?? [];
+    await this.assertAssignable(access, assigneeIds);
 
     const created = await this.taskModel.create({
       title: dto.title,
@@ -74,7 +78,7 @@ export class TasksService {
       project: project._id,
       parentTask,
       createdBy: toObjectId(userId),
-      assignee: dto.assigneeId ? toObjectId(dto.assigneeId) : null,
+      assignees: assigneeIds.map(toObjectId),
       labels: await this.labels.resolveForWorkspace(
         project.workspace,
         dto.labelIds ?? [],
@@ -91,7 +95,7 @@ export class TasksService {
       taskId: String(created._id),
       entityId: String(created._id),
       title: created.title,
-      assigneeId: dto.assigneeId ?? null,
+      assigneeIds,
       parentTaskId: parentTask ? String(parentTask) : null,
     });
     return this.getView(created._id);
@@ -158,13 +162,19 @@ export class TasksService {
       dto.dueDate === undefined ? task.dueDate : dto.dueDate,
     );
 
-    const { assigneeId, labelIds, ...fields } = dto;
+    const { assigneeIds, labelIds, ...fields } = dto;
     const patch: Partial<Task> = { ...fields };
 
-    if (assigneeId !== undefined && !idEquals(assigneeId, task.assignee)) {
+    const current = assigneesOf(task).map(String);
+    const addedAssigneeIds =
+      assigneeIds?.filter((id) => !current.includes(id)) ?? [];
+    if (
+      assigneeIds &&
+      (addedAssigneeIds.length || assigneeIds.length !== current.length)
+    ) {
       assertCan(access, Permission.TASK_ASSIGN);
-      if (assigneeId) await this.assertAssignable(access, assigneeId);
-      patch.assignee = assigneeId ? toObjectId(assigneeId) : null;
+      await this.assertAssignable(access, addedAssigneeIds);
+      patch.assignees = assigneeIds.map(toObjectId);
     }
     if (labelIds) {
       patch.labels = await this.labels.resolveForWorkspace(
@@ -176,6 +186,7 @@ export class TasksService {
     if (!Object.keys(changes).length) return this.getView(task._id);
 
     // Derived bookkeeping, not part of the user-visible change history.
+    if (!task.assignees) patch.assignees ??= assigneesOf(task);
     if (changes.status) {
       patch.completedAt = dto.status === TaskStatus.DONE ? new Date() : null;
     }
@@ -195,7 +206,8 @@ export class TasksService {
       entityId: String(task._id),
       title: updated.title,
       createdById: String(task.createdBy),
-      assigneeId: updated.assignee ? String(updated.assignee) : null,
+      assigneeIds: assigneesOf(updated).map(String),
+      addedAssigneeIds,
       changes,
     });
     return this.getView(task._id);
@@ -233,10 +245,16 @@ export class TasksService {
       'parentTask',
       tasks.filter((t) => !t.parentTask).map((t) => t._id),
     );
-    return tasks.map((t) => ({
-      ...t,
-      subtaskProgress: progress.get(String(t._id)) ?? EMPTY_PROGRESS,
-    }));
+    return tasks.map((task) => {
+      // Expose pre-migration `assignee` as `assignees` only.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { assignee, ...rest } = task as TaskRecord & { assignee?: unknown };
+      return {
+        ...rest,
+        assignees: assigneesOf(task),
+        subtaskProgress: progress.get(String(task._id)) ?? EMPTY_PROGRESS,
+      };
+    });
   }
 
   private async getView(taskId: Types.ObjectId): Promise<TaskView> {
@@ -263,15 +281,15 @@ export class TasksService {
     if (query.status?.length) filter.status = { $in: query.status };
     if (query.priority?.length) filter.priority = { $in: query.priority };
     if (query.labelId) filter.labels = toObjectId(query.labelId);
-    if (query.assigneeId === 'me') filter.assignee = toObjectId(userId);
-    else if (query.assigneeId === 'none') filter.assignee = null;
+    if (query.assigneeId === 'me') filter.assignees = toObjectId(userId);
+    else if (query.assigneeId === 'none') filter.assignees = { $size: 0 };
     else if (query.assigneeId) {
       if (!Types.ObjectId.isValid(query.assigneeId)) {
         throw new BadRequestException(
           "assigneeId must be an id, 'me' or 'none'",
         );
       }
-      filter.assignee = toObjectId(query.assigneeId);
+      filter.assignees = toObjectId(query.assigneeId);
     }
     if (query.dueFrom || query.dueTo) {
       filter.dueDate = {
@@ -305,13 +323,19 @@ export class TasksService {
     return parent._id;
   }
 
+  /** Only newly added assignees are checked, so removing others never fails on someone who since lost access. */
   private async assertAssignable(
     access: ProjectAccess,
-    assigneeId: string,
+    assigneeIds: string[],
   ): Promise<void> {
-    if (!(await this.projectAccess.canAccess(assigneeId, access.project._id))) {
+    const allowed = await Promise.all(
+      assigneeIds.map((id) =>
+        this.projectAccess.canAccess(id, access.project._id),
+      ),
+    );
+    if (allowed.includes(false)) {
       throw new BadRequestException(
-        'Assignee must be a workspace member with access to this project',
+        'Assignees must be workspace members with access to this project',
       );
     }
   }
