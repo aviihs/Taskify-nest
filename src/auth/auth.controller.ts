@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Post, Put } from '@nestjs/common';
 
 import {
   ApiTags,
@@ -11,22 +11,23 @@ import {
   ApiBadRequestResponse,
 } from '@nestjs/swagger';
 
-import { AuthService } from './auth.service';
-import { RegisterDto } from '../users/dtos/register.dtos';
-import { LoginDto } from '../users/dtos/login.dtos';
-
-import { ForgotPasswordDto } from '../users/dtos/forgot-password.dto';
-import { ResetPasswordDto } from '../users/dtos/reset-password.dto';
-import { ChangePasswordDto } from '../users/dtos/change-password.dto';
-import { UseGuards, Request, Delete } from '@nestjs/common';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { Throttle } from '@nestjs/throttler';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
+import { AuthUser } from '../common/types/auth-user';
+import { ChangePasswordDto } from '../users/dtos/change-password.dto';
+import { ForgotPasswordDto } from '../users/dtos/forgot-password.dto';
+import { LoginDto } from '../users/dtos/login.dtos';
 import { RefreshTokenDto } from '../users/dtos/refresh-token.dto';
+import { RegisterDto } from '../users/dtos/register.dtos';
 import { ResendOtpDto } from '../users/dtos/resend-otp.dto';
-import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
-import { UpdateProjectDto } from '../project/dtos/update-project.dto';
-import { UpdateUserDto } from '../users/dtos/update-user.dto';
+import { ResetPasswordDto } from '../users/dtos/reset-password.dto';
 import { UpdateProfileDto } from '../users/dtos/update-profile.dto';
+import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
+import { AuthService } from './auth.service';
+
+/** Brute-force protection for credential/OTP endpoints: 10 requests per minute per IP. */
+const CredentialThrottle = () => Throttle(10, 60);
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -34,6 +35,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @CredentialThrottle()
   @Post('register')
   @ApiOperation({ summary: 'Register a new user' })
   @ApiBody({ type: RegisterDto })
@@ -76,6 +78,7 @@ export class AuthController {
   }
 
   @Public()
+  @CredentialThrottle()
   @Post('login')
   @ApiOperation({ summary: 'Login user' })
   @ApiBody({ type: LoginDto })
@@ -159,6 +162,7 @@ export class AuthController {
   }
 
   @Public()
+  @CredentialThrottle()
   @Post('forgot-password')
   @ApiOperation({ summary: 'Request password reset OTP' })
   @ApiBody({ type: ForgotPasswordDto })
@@ -176,6 +180,7 @@ export class AuthController {
   }
 
   @Public()
+  @CredentialThrottle()
   @Post('reset-password')
   @ApiOperation({ summary: 'Reset password using OTP' })
   @ApiBody({ type: ResetPasswordDto })
@@ -192,7 +197,7 @@ export class AuthController {
     return this.authService.resetPassword(dto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @CredentialThrottle()
   @Post('change-password')
   @ApiOperation({ summary: 'Change password (authenticated)' })
   @ApiBody({ type: ChangePasswordDto })
@@ -204,11 +209,10 @@ export class AuthController {
       },
     },
   })
-  change(@Request() req, @Body() dto: ChangePasswordDto) {
-    return this.authService.changePassword(req.user, dto);
+  change(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(user, dto);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Delete('account')
   @ApiOperation({ summary: 'Delete current authenticated account' })
   @ApiOkResponse({
@@ -230,11 +234,12 @@ export class AuthController {
       },
     },
   })
-  deleteAccount(@Request() req) {
-    return this.authService.deleteAccount(req.user);
+  deleteAccount(@CurrentUser() user: AuthUser) {
+    return this.authService.deleteAccount(user);
   }
 
   @Public()
+  @CredentialThrottle()
   @Post('verify-email')
   @ApiOperation({ summary: 'Verify email using OTP' })
   @ApiBody({ type: VerifyEmailDto })
@@ -256,6 +261,7 @@ export class AuthController {
   }
 
   @Public()
+  @CredentialThrottle()
   @Post('resend-otp')
   @ApiOperation({ summary: 'Resend email verification OTP' })
   @ApiBody({ type: ResendOtpDto })
@@ -272,7 +278,6 @@ export class AuthController {
     return this.authService.resendOtp(dto);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Put('profile')
   @ApiOperation({ summary: 'Update user profile' })
   @ApiBody({ type: UpdateProfileDto })
@@ -311,7 +316,7 @@ export class AuthController {
       },
     },
   })
-  updateProfile(@Request() req, @Body() dto: UpdateProfileDto) {
-    return this.authService.updateProfile(req.user, dto);
+  updateProfile(@CurrentUser() user: AuthUser, @Body() dto: UpdateProfileDto) {
+    return this.authService.updateProfile(user, dto);
   }
 }

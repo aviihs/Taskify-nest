@@ -7,7 +7,7 @@ import {
   IsOptional,
   IsString,
 } from 'class-validator';
-import { Gender } from './register.dtos';
+import { Gender } from './user.dto';
 
 export class UpdateProfileDto {
   @ApiPropertyOptional()

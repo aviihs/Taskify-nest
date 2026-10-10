@@ -1,60 +1,63 @@
 import {
+  CanActivate,
   ExecutionContext,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { AuthGuard } from '@nestjs/passport';
-import { Observable } from 'rxjs';
-import * as jwt from 'jsonwebtoken';
-import { jwtConstants } from '../../auth/constants';
+import { JwtService } from '@nestjs/jwt';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { AuthUser, JwtPayload } from '../types/auth-user';
 
+export function extractBearerToken(header?: string): string | null {
+  if (!header?.startsWith('Bearer ')) return null;
+  return header.slice('Bearer '.length).trim() || null;
+}
+
+/**
+ * Global authentication guard. Verifies the access token and attaches a
+ * normalised AuthUser to the request. Refresh tokens are rejected here so a
+ * long-lived refresh token can never be used as an access token.
+ */
 @Injectable()
-export class JwtAuthGuard extends AuthGuard('jwt') {
-  constructor(private reflector: Reflector) {
-    super();
-  }
+export class JwtAuthGuard implements CanActivate {
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly jwtService: JwtService,
+  ) {}
 
-  private getUser(token: string) {
-    try {
-      return jwt.verify(token, jwtConstants.secret);
-    } catch (error) {
-      return null;
-    }
-  }
-
-  private setUser(user: any, request: any) {
-    request.user = user;
-  }
-
-  canActivate(
-    context: ExecutionContext,
-  ): boolean | Promise<boolean> | Observable<boolean> {
+  canActivate(context: ExecutionContext): boolean {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
-
-    if (isPublic) {
-      return true;
-    }
+    if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest();
-    const authHeader = request.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = extractBearerToken(request.headers.authorization);
+    if (!token) {
       throw new UnauthorizedException('Authorization header is missing');
     }
 
-    const token = authHeader.split(' ')[1];
-    const user = this.getUser(token);
+    const user = this.verifyAccessToken(token);
+    if (!user) throw new UnauthorizedException('Invalid or expired token');
 
-    if (user) {
-      this.setUser(user, request);
-      return true;
+    request.user = user;
+    return true;
+  }
+
+  /** Shared with the realtime gateway so both transports authenticate identically. */
+  verifyAccessToken(token: string): AuthUser | null {
+    try {
+      const payload = this.jwtService.verify<JwtPayload>(token);
+      if (payload.typ === 'refresh') return null;
+      return {
+        id: String(payload.sub ?? payload.id),
+        username: payload.username,
+        roles: payload.roles,
+      };
+    } catch {
+      return null;
     }
-
-    throw new UnauthorizedException('Invalid or expired token');
   }
 }

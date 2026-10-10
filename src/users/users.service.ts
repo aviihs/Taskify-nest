@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { FilterQuery, Model, Types } from 'mongoose';
 import { User } from './dtos/user.dto';
 import { UserSchemaName } from './schemas/user.schema';
-import { RegisterDto } from './dtos/register.dtos';
+import { containsInsensitive } from '../common/utils/query';
+import { PUBLIC_USER_FIELDS } from './public-user';
 
 @Injectable()
 export class UsersService {
@@ -14,7 +15,6 @@ export class UsersService {
 
   async addUser(user: Partial<User>) {
     const newUser = new this.usersModel(user);
-    // console.log('UserService:', user);
     return await newUser.save();
   }
 
@@ -26,11 +26,21 @@ export class UsersService {
     return await this.usersModel.findOne({ userName, isDeleted: false });
   }
 
+  /** Resolves @mentions; returns only active accounts. */
+  async findIdsByUserNames(userNames: string[]): Promise<Types.ObjectId[]> {
+    if (!userNames.length) return [];
+    const users = await this.usersModel
+      .find({ userName: { $in: userNames }, isDeleted: false })
+      .select('_id')
+      .lean();
+    return users.map((u) => u._id as Types.ObjectId);
+  }
+
   async findById(id: string | Types.ObjectId) {
     return await this.usersModel.findOne({ _id: id, isDeleted: false });
   }
 
-  async setRefreshToken(userId: any, token: string) {
+  async setRefreshToken(userId: string | Types.ObjectId, token: string) {
     return await this.usersModel.findByIdAndUpdate(
       userId,
       { $addToSet: { refreshTokens: token } },
@@ -38,7 +48,7 @@ export class UsersService {
     );
   }
 
-  async removeRefreshToken(userId: any, token: string) {
+  async removeRefreshToken(userId: string | Types.ObjectId, token: string) {
     return await this.usersModel.findByIdAndUpdate(
       userId,
       { $pull: { refreshTokens: token } },
@@ -47,7 +57,10 @@ export class UsersService {
   }
 
   async findByRefreshToken(token: string) {
-    return await this.usersModel.findOne({ refreshTokens: token });
+    return await this.usersModel.findOne({
+      refreshTokens: token,
+      isDeleted: false,
+    });
   }
 
   async setPasswordResetToken(email: string, token: string, expires: Date) {
@@ -67,7 +80,7 @@ export class UsersService {
     });
   }
 
-  async resetPassword(userId: any, newPassword: string) {
+  async resetPassword(userId: string | Types.ObjectId, newPassword: string) {
     return await this.usersModel.findByIdAndUpdate(
       userId,
       {
@@ -96,20 +109,21 @@ export class UsersService {
     const limit = query.limit && query.limit > 0 ? query.limit : 10;
     const skip = (page - 1) * limit;
 
-    const filter: any = { isDeleted: false };
-
-    if (query.search) {
-      filter.$or = [
-        { email: { $regex: query.search, $options: 'i' } },
-        { userName: { $regex: query.search, $options: 'i' } },
-      ];
-    }
-
-    if (query.role) filter.role = query.role;
-    if (typeof query.isActive === 'boolean') filter.isActive = query.isActive;
+    const regex = query.search && containsInsensitive(query.search);
+    const filter: FilterQuery<User> = {
+      isDeleted: false,
+      ...(regex && { $or: [{ email: regex }, { userName: regex }] }),
+      ...(query.role && { role: query.role }),
+      ...(typeof query.isActive === 'boolean' && { isActive: query.isActive }),
+    };
 
     const [items, total] = await Promise.all([
-      this.usersModel.find(filter).skip(skip).limit(limit).lean(),
+      this.usersModel
+        .find(filter)
+        .select({ ...PUBLIC_USER_FIELDS, role: 1, isActive: 1, createdAt: 1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
       this.usersModel.countDocuments(filter),
     ]);
 
@@ -121,7 +135,10 @@ export class UsersService {
     };
   }
 
-  async updateAvatar(userId: any, avatarPath: string) {
+  async updateAvatar(
+    userId: string | Types.ObjectId,
+    avatarPath: string | null,
+  ) {
     return await this.usersModel.findByIdAndUpdate(
       userId,
       { avatar: avatarPath },
@@ -138,7 +155,7 @@ export class UsersService {
     });
   }
 
-  async markEmailVerified(userId: any) {
+  async markEmailVerified(userId: string | Types.ObjectId) {
     return await this.usersModel.findByIdAndUpdate(
       userId,
       {

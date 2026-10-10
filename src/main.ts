@@ -1,40 +1,27 @@
-import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
-import { env } from './common/config/env.config';
+import { configureApp } from './app.setup';
+import { assertRequiredEnv, env } from './common/config/env.config';
 
 async function bootstrap() {
+  assertRequiredEnv();
   const app = await NestFactory.create(AppModule);
   const logger = new Logger('Bootstrap');
 
   app.enableCors({
-    origin: true,
+    origin: env.corsOrigins.length ? env.corsOrigins : true,
     credentials: true,
   });
 
-  // Global validation pipe
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidNonWhitelisted: true,
-      exceptionFactory: (errors) => {
-        const messages = errors.flatMap((error) =>
-          Object.values(error.constraints ?? {}),
-        );
-        return new BadRequestException(
-          messages.length ? messages : 'Invalid request payload',
-        );
-      },
-    }),
-  );
+  configureApp(app);
 
   // Swagger/OpenAPI configuration
   const config = new DocumentBuilder()
     .setTitle('Taskify API')
     .setDescription(
-      'A polished task management API with authentication, task ownership, and comprehensive health monitoring.',
+      'Taskify API: personal and organization workspaces, projects, tasks and collaboration.',
     )
     .setVersion('1.0.0')
     .addBearerAuth(
@@ -47,11 +34,6 @@ async function bootstrap() {
       },
       'JWT-auth',
     )
-    .addTag('Health', 'Health check and monitoring endpoints')
-    .addTag('Auth', 'Authentication endpoints')
-    .addTag('Task', 'Task management endpoints')
-    .addTag('Users', 'User management endpoints')
-    .addTag('Root', 'API root endpoint')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
@@ -69,7 +51,7 @@ async function bootstrap() {
     },
   });
 
-  const port = env.port || 3000;
+  const port = env.port;
   await app.listen(port, '0.0.0.0');
   logger.log(`✓ Application is running on http://localhost:${port}`);
   logger.log(
@@ -78,10 +60,3 @@ async function bootstrap() {
   logger.log(`✓ Health check available at http://localhost:${port}/health`);
 }
 bootstrap();
-
-// get refresh tokens
-// change password
-// logout
-
-// .env
-// config

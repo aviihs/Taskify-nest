@@ -1,86 +1,115 @@
 # Taskify API
 
-This project is a NestJS-based task management API with authentication, authorization, Swagger documentation, MongoDB integration, and a cleaner layered architecture.
+Backend for Taskify, a task management platform for personal productivity and team collaboration. One NestJS API serves both the web app and the mobile app.
 
-## Overview
+Every user has a **Personal workspace** and can join any number of **organization workspaces**, with a different role in each one. Projects, tasks, comments, files, notifications, search and the dashboard all live inside a workspace and are only visible to its members.
 
-The application follows a simple and professional flow:
+## Stack
 
-```text
-Client
-  ↓
-Controller
-  ↓
-Service
-  ↓
-Repository
-  ↓
-MongoDB
-  ↓
-Response
+| Part | Technology |
+| --- | --- |
+| Framework | NestJS 8 (TypeScript) |
+| Database | MongoDB with Mongoose 6 |
+| Auth | JWT access + refresh tokens, bcrypt, email OTP (Resend) |
+| Realtime | Socket.IO |
+| Background jobs | `@nestjs/schedule` (due-date reminders) |
+| AI | Claude via the Anthropic SDK (optional) |
+| Docs | Swagger at `/api` |
+| Tests | Jest + Supertest against an in-memory MongoDB |
+
+## Quick start
+
+```bash
+bun install
+cp .env.example .env      # then fill in MONGO_URI and JWT_SECRET
+bun run migrate           # only needed once for a database with pre-workspace data
+bun run start:dev
 ```
 
-## Folder structure
+- API: `http://localhost:3000`
+- Swagger: `http://localhost:3000/api`
+- Health: `http://localhost:3000/health`
+
+## Environment variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `MONGO_URI` | Yes | MongoDB connection string |
+| `JWT_SECRET` | Yes | Signs access and refresh tokens |
+| `PORT` | No | Defaults to 3000 |
+| `RESEND_API_KEY`, `EMAIL_FROM` | For email | OTP, password reset and invitation emails |
+| `APP_URL` | No | Web app URL used in invitation emails |
+| `CORS_ORIGINS` | No | Comma-separated allowed origins; empty allows the request origin |
+| `UPLOAD_DIR` | No | Where avatars and attachments are stored; defaults to `./uploads` |
+| `ANTHROPIC_API_KEY` | For AI | Enables the AI task breakdown; without it those endpoints return 503 |
+
+The app refuses to start if `MONGO_URI` or `JWT_SECRET` is missing.
+
+## Scripts
+
+Use `bun run <script>`: plain `bun test` and `bun build` start Bun's own test runner and bundler instead of these scripts.
+
+| Command | What it does |
+| --- | --- |
+| `bun run start:dev` | Run with hot reload |
+| `bun run build` / `bun run start:prod` | Build to `dist/` and run it |
+| `bun run lint` | ESLint + Prettier (auto-fix) |
+| `bun run test` | Unit tests |
+| `bun run test:e2e` | End-to-end tests; starts its own in-memory MongoDB, no setup needed |
+| `bun run migrate` / `bun run migrate:prod` | Run pending data migrations (dev / built) |
+
+## Project structure
 
 ```text
 src/
-├── app.module.ts
-├── main.ts
-├── auth/
-├── common/
-├── database/
-├── task/
-└── users/
+├── main.ts, app.setup.ts     bootstrap, validation pipe, error filter, Swagger
+├── app.module.ts             wires every module, global guards, throttling
+├── common/                   permissions, guards, decorators, events, pagination, email, utils
+├── database/                 Mongo connection and migrations
+├── auth/  users/             registration, login, tokens, profile
+├── workspaces/               workspaces, members, roles, workspace access checks
+├── invitations/              invite by email, accept / decline / cancel
+├── projects/                 projects, project members, project access checks
+├── labels/                   workspace labels
+├── tasks/                    tasks, subtasks, My Tasks, task access checks
+├── task-dependencies/        "A blocks B" links
+├── comments/  attachments/   collaboration on a task
+├── activity/  notifications/ audit log, in-app notifications, reminders
+├── search/  dashboard/       read-only, access-scoped queries
+├── realtime/                 Socket.IO gateway
+├── ai/                       AI task breakdown
+└── health/                   health and readiness probes
+test/                         end-to-end suites and the test app harness
 ```
 
-### What each part does
+## How access works
 
-- auth/: handles login, registration, and JWT creation.
-- common/: shared decorators, guards, config, and base repository logic.
-- task/: task routes, task business logic, task repository, DTOs, and task-specific guards.
-- users/: user creation and lookup logic.
-- database/: MongoDB connection setup.
+- Roles belong to the workspace membership, not the user: **OWNER > ADMIN > MANAGER > MEMBER > VIEWER**.
+- Each role maps to permissions such as `task:update` or `member:invite` in `src/common/authorization/permissions.ts`. Code checks permissions, never role names.
+- Every id sent by a client is resolved on the server: task → project → workspace → your membership → permission.
+- Not a member, or the project isn't visible to you → **404**. A member without the permission → **403**.
+- Members and viewers see only the projects they were added to; managers and above see every project in the workspace.
 
-## Controllers, services, repositories, and DTOs
+## API at a glance
 
-### Controllers
-Controllers receive HTTP requests and delegate work to services.
+| Area | Main routes |
+| --- | --- |
+| Auth | `/auth/register`, `/login`, `/refresh`, `/logout`, `/verify-email`, `/forgot-password`, `/reset-password`, `/change-password`, `/profile` |
+| Users | `GET /users/me`, `POST /users/me/avatar`, `GET /users/me/tasks` (My Tasks) |
+| Workspaces | `/workspaces`, `/workspaces/:id/members` |
+| Invitations | `/workspaces/:id/invitations`, `/invitations`, `/invitations/:id/accept` |
+| Projects | `/workspaces/:id/projects`, `/projects/:id`, `/projects/:id/members` |
+| Tasks | `/projects/:id/tasks`, `/tasks/:id`, `/tasks/:id/subtasks`, `/tasks/:id/dependencies` |
+| Collaboration | `/workspaces/:id/labels`, `/tasks/:id/comments`, `/tasks/:id/attachments` |
+| Feeds | `/notifications`, `/workspaces/:id/activity`, `/tasks/:id/activity` |
+| Insights | `/search`, `/workspaces/:id/dashboard` |
+| AI | `/projects/:id/ai/task-breakdown` |
+| Realtime | Socket.IO namespace `/realtime` |
 
-### Services
-Services contain the business rules.
+Lists accept `page` and `limit` (max 100) and return `{ items, meta: { page, limit, total, totalPages } }`. Errors return `{ success: false, statusCode, error, message, path, timestamp }`. Full request and response schemas are in Swagger.
 
-### Repositories
-Repositories handle database access so services stay focused on logic.
+## More documentation
 
-### DTOs
-DTOs validate incoming request data and improve Swagger documentation.
-
-## Decorators
-Decorators are reusable helpers that simplify controllers.
-
-Example:
-- GetUser reads the JWT from the Authorization header and injects the authenticated user into the handler.
-
-## Guards
-Guards protect endpoints.
-
-Example:
-- JwtAuthGuard ensures the request has a valid token.
-- TaskAccessGuard ensures a user can only access tasks they own.
-
-## Environment setup
-Create a .env file using .env.example:
-
-```env
-PORT=3000
-MONGO_URI=mongodb://127.0.0.1:27017/taskify
-JWT_SECRET=your-super-secret-key
-```
-
-## Swagger
-Swagger is available at:
-
-```text
-http://localhost:3000/api
-```
-
+- `ARCHITECTURE.md`: request flow, events, data model and conventions for adding features.
+- `README-architecture.md`: guards, decorators and pipes, plus feature status against the original specification.
+- `src/health/HEALTH_MODULE_README.md`: health endpoints.

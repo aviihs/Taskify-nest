@@ -1,41 +1,33 @@
 import {
-  Injectable,
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { AuthUser } from '../types/auth-user';
 
+/**
+ * Guards platform-administration endpoints (e.g. user moderation) using the
+ * platform role in the token. Workspace-level authorization is handled by the
+ * workspace access services, not by this guard.
+ */
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
     const requiredRoles = this.reflector.getAllAndOverride<string[]>(
       ROLES_KEY,
       [context.getHandler(), context.getClass()],
     );
-    if (!requiredRoles || requiredRoles.length === 0) {
-      return true;
-    }
+    if (!requiredRoles?.length) return true;
 
-    const request = context.switchToHttp().getRequest();
-    const user = request.user;
-
-    if (!user || !user.roles) {
-      throw new ForbiddenException('User roles not found');
-    }
-
-    const hasRole = requiredRoles.some((role) => {
-      if (Array.isArray(user.roles)) return user.roles.includes(role);
-      return user.roles === role;
-    });
-
-    if (!hasRole) {
+    const user: AuthUser | undefined = context.switchToHttp().getRequest().user;
+    if (!user?.roles || !requiredRoles.includes(user.roles)) {
       throw new ForbiddenException('Insufficient role');
     }
-
     return true;
   }
 }

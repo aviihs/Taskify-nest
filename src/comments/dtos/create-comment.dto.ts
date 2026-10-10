@@ -1,14 +1,24 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString, IsMongoId } from 'class-validator';
+import {
+  IsMongoId,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateCommentDto {
-  @ApiProperty({ example: 'This looks good. Can we add an extra test?' })
+  @ApiProperty({
+    example: 'Looks good @ram — can we add a test for the expiry case?',
+    description: 'Mention teammates with @username to notify them.',
+  })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(5000)
   content: string;
 
-  @ApiPropertyOptional({ example: '684efb1f4db4d8f5e98b1234' })
-  @IsMongoId()
+  @ApiPropertyOptional({ description: 'Reply to this top-level comment' })
   @IsOptional()
-  parentComment?: string;
+  @IsMongoId()
+  parentCommentId?: string;
 }
