@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      nestjs:
+        patterns: ['@nestjs/*']
+    ignore:
+      # @nestjs/* majors must be upgraded together by hand: a single package
+      # on a newer major than @nestjs/core crashes the app at startup.
+      - dependency-name: '@nestjs/*'
+        update-types: ['version-update:semver-major']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

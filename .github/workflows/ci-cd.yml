@@ -1,0 +1,135 @@
+name: CI/CD
+
+# CI: every pull request and every push to main is linted, tested and built.
+# CD: a push to main that passes CI is deployed to Render.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # A newer push to the same branch/PR cancels the older CI run.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Lint, test & build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      # Jest, Nest CLI and the app itself run on Node (same as Render).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache Bun packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      # The e2e suite downloads a MongoDB binary for mongodb-memory-server.
+      - name: Cache MongoDB binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint:check
+
+      - name: Format
+        run: bun run format:check
+
+      - name: Unit tests
+        run: bun run test
+
+      - name: E2E tests (in-memory MongoDB)
+        run: bun run test:e2e
+
+      - name: Build
+        run: bun run build
+
+  deploy:
+    name: Deploy to Render
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Secrets live in the "production" environment; add required reviewers
+    # there if deploys should wait for a manual approval.
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+    concurrency:
+      # Never cancel a deploy halfway; queue the next one instead.
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Trigger Render deploy
+        id: trigger
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::error::Secret RENDER_DEPLOY_HOOK_URL is not set (Render → Settings → Deploy Hook)."
+            exit 1
+          fi
+          response=$(curl -fsS -X POST "$HOOK&ref=${GITHUB_SHA}")
+          echo "$response"
+          echo "deploy_id=$(echo "$response" | jq -r '.deploy.id // empty')" >> "$GITHUB_OUTPUT"
+          # The hook URL is https://api.render.com/deploy/<service id>?key=...
+          echo "service_id=$(echo "$HOOK" | sed -E 's#.*/deploy/([^?]+).*#\1#')" >> "$GITHUB_OUTPUT"
+
+      # Optional: with RENDER_API_KEY set, wait for Render to finish so a
+      # failed deploy turns this workflow red.
+      - name: Wait for deploy to go live
+        if: steps.trigger.outputs.deploy_id != ''
+        env:
+          API_KEY: ${{ secrets.RENDER_API_KEY }}
+          SERVICE: ${{ steps.trigger.outputs.service_id }}
+          DEPLOY: ${{ steps.trigger.outputs.deploy_id }}
+        run: |
+          if [ -z "$API_KEY" ]; then
+            echo "RENDER_API_KEY not set; not waiting for the deploy result."
+            exit 0
+          fi
+          for i in $(seq 1 80); do
+            status=$(curl -fsS -H "Authorization: Bearer $API_KEY" \
+              "https://api.render.com/v1/services/$SERVICE/deploys/$DEPLOY" | jq -r '.status')
+            echo "[$i] $status"
+            case "$status" in
+              live) exit 0 ;;
+              build_failed|update_failed|canceled|deactivated|pre_deploy_failed)
+                echo "::error::Render deploy ended with status $status"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "::error::Timed out waiting for the Render deploy"; exit 1
+
+      - name: Health check
+        if: vars.PRODUCTION_URL != ''
+        env:
+          URL: ${{ vars.PRODUCTION_URL }}
+        run: |
+          # Free instances can take a while to wake up.
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 20 "$URL/health"; then exit 0; fi
+            sleep 15
+          done
+          echo "::error::$URL/health did not respond"; exit 1
