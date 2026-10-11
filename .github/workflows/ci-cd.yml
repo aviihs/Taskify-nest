@@ -34,7 +34,7 @@ jobs:
           node-version: 22
 
       - name: Cache Bun packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
@@ -42,7 +42,7 @@ jobs:
 
       # The e2e suite downloads a MongoDB binary for mongodb-memory-server.
       - name: Cache MongoDB binary
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/mongodb-binaries
           key: mongodb-${{ runner.os }}-${{ hashFiles('bun.lock') }}
