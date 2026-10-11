@@ -51,7 +51,7 @@ export class InvitationsController {
   @Get('workspaces/:workspaceId/invitations/candidates')
   @ApiOperation({
     summary:
-      'Search people to invite by username or name (up to 10), each flagged AVAILABLE / INVITED / MEMBER',
+      'Search people to invite by username or name: the 5 best matches, each flagged AVAILABLE / INVITED / MEMBER',
   })
   searchInvitees(
     @CurrentUser() user: AuthUser,

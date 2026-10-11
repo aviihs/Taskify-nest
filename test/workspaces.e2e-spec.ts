@@ -229,6 +229,25 @@ describe('Workspaces, membership & invitations (e2e)', () => {
       .expect(403);
   });
 
+  it('suggests at most the 5 best matches, exact username first', async () => {
+    const quinns = [];
+    for (let i = 0; i < 7; i++) quinns.push(await ctx.signUp('quinn'));
+    const search = async (q: string) =>
+      (
+        await ctx
+          .as(alice)
+          .get(`/workspaces/${acme}/invitations/candidates?q=${q}`)
+          .expect(200)
+      ).body;
+
+    const some = await search('quinn');
+    expect(some).toHaveLength(5);
+    expect(some.every((u) => u.userName.startsWith('quinn_'))).toBe(true);
+
+    const last = quinns[6];
+    expect((await search(last.userName))[0]._id).toBe(last.id);
+  });
+
   it('blocks members without permission from inviting or managing members', async () => {
     const erin = await ctx.signUp('erin');
     await invite(bob, acme, erin.email, 'MEMBER').expect(403);

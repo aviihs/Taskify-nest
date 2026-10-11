@@ -30,7 +30,7 @@ import {
 } from './schemas/invitation.schema';
 
 export const INVITATION_TTL_DAYS = 7;
-const INVITEE_SEARCH_LIMIT = 10;
+const INVITEE_SEARCH_LIMIT = 5;
 
 export type InviteeCandidate = PublicUser & { inviteStatus: InviteeStatus };
 

@@ -7,6 +7,9 @@ import { isDuplicateKeyError } from '../common/utils/mongo-errors';
 import { containsInsensitive, escapeRegex } from '../common/utils/query';
 import { PUBLIC_USER_FIELDS, PublicUser } from './public-user';
 
+/** Candidates fetched before ranking, so the best few are found among them. */
+const SEARCH_POOL = 50;
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -44,8 +47,9 @@ export class UsersService {
   }
 
   /**
-   * People search for pickers: username prefix first, then first/last name
-   * prefix. Only active accounts; exact username match is ranked first.
+   * People search for pickers, best match first: exact username, then
+   * username prefix, then first/last name prefix; closer lengths win ties.
+   * Only active accounts.
    */
   async searchByUserName(
     query: string,
@@ -66,13 +70,17 @@ export class UsersService {
       })
       .select(PUBLIC_USER_FIELDS)
       .sort({ userName: 1 })
-      .limit(limit * 2)
+      .limit(SEARCH_POOL)
       .lean<PublicUser[]>();
 
     const needle = query.trim().toLowerCase();
     const rank = (u: PublicUser) =>
       u.userName === needle ? 0 : u.userName.startsWith(needle) ? 1 : 2;
-    return users.sort((a, b) => rank(a) - rank(b)).slice(0, limit);
+    return users
+      .sort(
+        (a, b) => rank(a) - rank(b) || a.userName.length - b.userName.length,
+      )
+      .slice(0, limit);
   }
 
   async findById(id: string | Types.ObjectId) {
