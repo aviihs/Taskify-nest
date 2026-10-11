@@ -140,7 +140,7 @@ export function renderLandingPage({
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#3e425f">
-<title>Taskify API</title>
+<title>Taskify API Test</title>
 <link rel="icon" type="image/png" href="${LOGO_PATH}">
 <link rel="apple-touch-icon" href="${LOGO_PATH}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
