@@ -7,13 +7,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { FilterQuery, Model } from 'mongoose';
+import { ClientSession, FilterQuery, Model } from 'mongoose';
 import { canManageRole, Permission } from '../common/authorization/permissions';
+import { TransactionRunner } from '../common/database/transaction-runner';
 import { DomainEventPublisher } from '../common/events/domain-event-publisher';
 import { paginate, Paginated } from '../common/pagination/pagination';
 import { isDuplicateKeyError } from '../common/utils/mongo-errors';
 import { PUBLIC_USER_SELECT, PublicUser } from '../users/public-user';
 import { UsersService } from '../users/users.service';
+import { MemberStatus } from '../workspaces/schemas/workspace-member.schema';
 import { WorkspaceType } from '../workspaces/schemas/workspace.schema';
 import { WorkspaceAccessService } from '../workspaces/workspace-access.service';
 import { WorkspaceMembersService } from '../workspaces/workspace-members.service';
@@ -43,6 +45,7 @@ export class InvitationsService {
     private readonly members: WorkspaceMembersService,
     private readonly users: UsersService,
     private readonly events: DomainEventPublisher,
+    private readonly tx: TransactionRunner,
   ) {}
 
   async create(
@@ -69,11 +72,15 @@ export class InvitationsService {
       this.users.findById(actorId),
     ]);
     const email = invitee?.email ?? dto.email;
-    if (
+    const existing =
       invitee &&
-      (await this.access.isActiveMember(access.workspace._id, invitee._id))
-    ) {
-      throw new ConflictException('User is already a member of this workspace');
+      (await this.access.membershipOf(access.workspace._id, invitee._id));
+    if (existing) {
+      throw new ConflictException(
+        existing.status === MemberStatus.SUSPENDED
+          ? 'User is a suspended member of this workspace; reactivate them instead'
+          : 'User is already a member of this workspace',
+      );
     }
 
     // Free the unique "one pending invite" slot if the previous one lapsed.
@@ -192,11 +199,25 @@ export class InvitationsService {
     workspaceId: string,
     invitationId: string,
   ): Promise<void> {
-    const { workspace } = await this.access.authorize(
+    const { workspace, member } = await this.access.authorize(
       actorId,
       workspaceId,
       Permission.MEMBER_INVITE,
     );
+    const pending = await this.invitationModel
+      .findOne({
+        _id: invitationId,
+        workspace: workspace._id,
+        status: InvitationStatus.PENDING,
+      })
+      .select('role')
+      .lean<InvitationRecord>()
+      .exec();
+    if (pending && !canManageRole(member.role, pending.role)) {
+      throw new ForbiddenException(
+        'You cannot cancel an invitation for this role',
+      );
+    }
     const cancelled = await this.invitationModel
       .findOneAndUpdate(
         {
@@ -230,34 +251,60 @@ export class InvitationsService {
   }
 
   async accept(userId: string, invitationId: string) {
-    const invitation = await this.claim(
-      userId,
-      invitationId,
-      InvitationStatus.ACCEPTED,
-    );
-    if (!(await this.access.workspaceExists(invitation.workspace))) {
-      await this.invitationModel
-        .updateOne(
-          { _id: invitation._id },
-          { status: InvitationStatus.CANCELLED },
-        )
-        .exec();
+    const email = await this.emailOf(userId);
+    // Claim + membership commit together: a failed insert leaves the
+    // invitation PENDING instead of spent.
+    const outcome = await this.tx.run(async (session) => {
+      const invitation = await this.claimPending(
+        email,
+        invitationId,
+        InvitationStatus.ACCEPTED,
+        session,
+      );
+      if (!invitation) return null;
+      if (!(await this.access.workspaceExists(invitation.workspace, session))) {
+        await this.invitationModel
+          .updateOne(
+            { _id: invitation._id },
+            { status: InvitationStatus.CANCELLED },
+            { session },
+          )
+          .exec();
+        return { invitation, member: null };
+      }
+      const member = await this.members.addMember(
+        invitation.workspace,
+        userId,
+        invitation.role,
+        String(invitation.invitedBy),
+        session,
+      );
+      return { invitation, member };
+    });
+
+    if (!outcome) return this.rejectUnclaimable(email, invitationId);
+    if (!outcome.member) {
       throw new GoneException('This invitation is no longer valid');
     }
-    return this.members.addMember(
-      invitation.workspace,
+    this.events.publish({
+      type: 'workspace.member.joined',
+      actorId: userId,
+      workspaceId: String(outcome.invitation.workspace),
+      entityId: String(outcome.member._id),
       userId,
-      invitation.role,
-      String(invitation.invitedBy),
-    );
+      role: outcome.member.role,
+    });
+    return outcome.member;
   }
 
   async decline(userId: string, invitationId: string): Promise<void> {
-    const declined = await this.claim(
-      userId,
+    const email = await this.emailOf(userId);
+    const declined = await this.claimPending(
+      email,
       invitationId,
       InvitationStatus.DECLINED,
     );
+    if (!declined) return this.rejectUnclaimable(email, invitationId);
     this.publishClosed('invitation.declined', userId, declined, {
       _id: userId,
     });
@@ -281,18 +328,18 @@ export class InvitationsService {
   }
 
   /**
-   * Atomically moves a pending, unexpired invitation addressed to the caller
+   * Atomically moves a pending, unexpired invitation addressed to `email`
    * into its final state, so double-accepts and races cannot create two
-   * memberships or resurrect an answered invite.
+   * memberships or resurrect an answered invite. Null when nothing matched.
    */
-  private async claim(
-    userId: string,
+  private claimPending(
+    email: string,
     invitationId: string,
     status: InvitationStatus.ACCEPTED | InvitationStatus.DECLINED,
-  ): Promise<InvitationRecord> {
-    const email = await this.emailOf(userId);
+    session?: ClientSession,
+  ): Promise<InvitationRecord | null> {
     const now = new Date();
-    const claimed = await this.invitationModel
+    return this.invitationModel
       .findOneAndUpdate(
         {
           _id: invitationId,
@@ -301,12 +348,17 @@ export class InvitationsService {
           expiresAt: { $gt: now },
         },
         { status, respondedAt: now },
-        { new: true },
+        { new: true, session },
       )
       .lean<InvitationRecord>()
       .exec();
-    if (claimed) return claimed;
+  }
 
+  /** Explains why an invitation could not be claimed (and expires it if it lapsed). */
+  private async rejectUnclaimable(
+    email: string,
+    invitationId: string,
+  ): Promise<never> {
     const existing = await this.invitationModel
       .findOne({ _id: invitationId, email })
       .lean<InvitationRecord>()

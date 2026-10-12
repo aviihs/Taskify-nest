@@ -8,6 +8,7 @@ import {
 } from '../common/events/domain-events';
 import { paginate, Paginated } from '../common/pagination/pagination';
 import { toObjectId } from '../common/utils/query';
+import { ProjectAccessService } from '../projects/project-access.service';
 import { PUBLIC_USER_SELECT } from '../users/public-user';
 import { ListNotificationsQueryDto } from './dtos/notification.dto';
 import {
@@ -22,6 +23,11 @@ export interface NotifyInput {
   message: string;
   actorId?: string | null;
   workspaceId?: string | null;
+  /**
+   * When the notification is about something inside a project, recipients who
+   * can no longer see that project are dropped.
+   */
+  projectId?: string | null;
   entityType: string;
   entityId: string;
   link?: string | null;
@@ -38,13 +44,22 @@ export class NotificationsService {
     @InjectModel(Notification.name)
     private readonly notificationModel: Model<Notification>,
     private readonly emitter: EventEmitter2,
+    private readonly projectAccess: ProjectAccessService,
   ) {}
 
-  async notify(input: NotifyInput): Promise<void> {
-    const recipients = [...new Set(input.recipientIds)].filter(
+  /** Returns how many notifications were created. */
+  async notify(input: NotifyInput): Promise<number> {
+    let recipients = [...new Set(input.recipientIds)].filter(
       (id) => id !== input.actorId,
     );
-    if (!recipients.length) return;
+    if (recipients.length && input.projectId) {
+      const allowed = await this.projectAccess.usersWithAccess(
+        input.projectId,
+        recipients,
+      );
+      recipients = recipients.filter((id) => allowed.has(id));
+    }
+    if (!recipients.length) return 0;
 
     const created = await this.notificationModel.insertMany(
       recipients.map((recipientId) => ({
@@ -65,6 +80,7 @@ export class NotificationsService {
       };
       this.emitter.emit(NOTIFICATION_CREATED, event);
     }
+    return created.length;
   }
 
   list(

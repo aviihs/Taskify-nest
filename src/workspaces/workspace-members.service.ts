@@ -6,12 +6,19 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { FilterQuery, Model, PipelineStage, Types } from 'mongoose';
+import {
+  ClientSession,
+  FilterQuery,
+  Model,
+  PipelineStage,
+  Types,
+} from 'mongoose';
 import {
   canManageRole,
   Permission,
   WorkspaceRole,
 } from '../common/authorization/permissions';
+import { TransactionRunner } from '../common/database/transaction-runner';
 import { DomainEventPublisher } from '../common/events/domain-event-publisher';
 import { pageMeta, Paginated } from '../common/pagination/pagination';
 import { isDuplicateKeyError } from '../common/utils/mongo-errors';
@@ -20,6 +27,8 @@ import {
   idEquals,
   toObjectId,
 } from '../common/utils/query';
+import { ProjectMember } from '../projects/schemas/project-member.schema';
+import { Task, TaskStatus } from '../tasks/schemas/task.schema';
 import { lookupPublicUser, PublicUser } from '../users/public-user';
 import { ListMembersQueryDto, UpdateMemberDto } from './dtos/workspace.dto';
 import { WorkspaceType } from './schemas/workspace.schema';
@@ -42,8 +51,13 @@ export class WorkspaceMembersService {
   constructor(
     @InjectModel(WorkspaceMember.name)
     private readonly memberModel: Model<WorkspaceMember>,
+    // Cascade targets when a member leaves (see docs/DATA_MODEL.md §4).
+    @InjectModel(ProjectMember.name)
+    private readonly projectMemberModel: Model<ProjectMember>,
+    @InjectModel(Task.name) private readonly taskModel: Model<Task>,
     private readonly access: WorkspaceAccessService,
     private readonly events: DomainEventPublisher,
+    private readonly tx: TransactionRunner,
   ) {}
 
   async list(
@@ -100,28 +114,30 @@ export class WorkspaceMembersService {
     };
   }
 
-  /** Internal: used by invitation acceptance. Authorization happens in the caller. */
+  /**
+   * Internal: used by invitation acceptance, inside its transaction.
+   * Authorization happens in the caller, which also publishes
+   * `workspace.member.joined` after commit.
+   */
   async addMember(
     workspaceId: Types.ObjectId,
     userId: string,
     role: WorkspaceRole,
     invitedBy: string,
+    session: ClientSession,
   ): Promise<WorkspaceMemberRecord> {
     try {
-      const member = await this.memberModel.create({
-        workspace: workspaceId,
-        user: toObjectId(userId),
-        role,
-        invitedBy: toObjectId(invitedBy),
-      });
-      this.events.publish({
-        type: 'workspace.member.joined',
-        actorId: userId,
-        workspaceId: String(workspaceId),
-        entityId: String(member._id),
-        userId,
-        role,
-      });
+      const [member] = await this.memberModel.create(
+        [
+          {
+            workspace: workspaceId,
+            user: toObjectId(userId),
+            role,
+            invitedBy: toObjectId(invitedBy),
+          },
+        ],
+        { session },
+      );
       return member.toObject() as WorkspaceMemberRecord;
     } catch (error) {
       if (isDuplicateKeyError(error)) {
@@ -167,6 +183,16 @@ export class WorkspaceMembersService {
         changes: { role: { from: target.role, to: dto.role } },
       });
     }
+    if (dto.status && dto.status !== target.status) {
+      this.events.publish({
+        type: 'workspace.member.status_changed',
+        actorId,
+        workspaceId,
+        entityId: String(target._id),
+        userId: targetUserId,
+        changes: { status: { from: target.status, to: dto.status } },
+      });
+    }
     return updated;
   }
 
@@ -193,7 +219,28 @@ export class WorkspaceMembersService {
       target = await this.findManageableMember(access, targetUserId);
     }
 
-    await this.memberModel.deleteOne({ _id: target._id }).exec();
+    const workspace = access.workspace._id;
+    const user = target.user;
+    // Leaving revokes everything that depended on the membership.
+    await this.tx.run(async (session) => {
+      await this.memberModel.deleteOne({ _id: target._id }, { session }).exec();
+      await this.projectMemberModel
+        .deleteMany({ workspace, user }, { session })
+        .exec();
+      // Open work goes back to the pool; finished work keeps its history.
+      await this.taskModel
+        .updateMany(
+          {
+            workspace,
+            assignees: user,
+            status: { $ne: TaskStatus.DONE },
+            deletedAt: null,
+          },
+          { $pull: { assignees: user } },
+          { session },
+        )
+        .exec();
+    });
     this.events.publish({
       type: 'workspace.member.removed',
       actorId,

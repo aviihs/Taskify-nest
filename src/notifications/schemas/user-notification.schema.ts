@@ -46,4 +46,7 @@ export class Notification {
 export type NotificationRecord = Persisted<Notification>;
 export const NotificationSchema = SchemaFactory.createForClass(Notification);
 
+// Unread list and count.
 NotificationSchema.index({ recipient: 1, readAt: 1, createdAt: -1 });
+// Full inbox, newest first.
+NotificationSchema.index({ recipient: 1, createdAt: -1 });

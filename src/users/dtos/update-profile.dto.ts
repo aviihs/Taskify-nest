@@ -1,26 +1,23 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  IsBoolean,
   IsDateString,
   IsEnum,
   IsNumber,
   IsOptional,
   IsString,
+  MaxLength,
 } from 'class-validator';
 import { Gender } from './user.dto';
 
 export class UpdateProfileDto {
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  avatar?: string;
-
   @ApiPropertyOptional({
-    example: true,
+    description:
+      'An https URL, or the current value unchanged. Upload images with POST /users/me/avatar.',
   })
   @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
+  @IsString()
+  @MaxLength(2048)
+  avatar?: string;
 
   @ApiPropertyOptional({
     example: '2002-08-15',

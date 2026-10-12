@@ -107,7 +107,7 @@ export class RegisterDto {
     description: 'User avatar URL',
   })
   @IsOptional()
-  @IsUrl()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
   avatar?: string;
 
   @ApiPropertyOptional({ default: false })

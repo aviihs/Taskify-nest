@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, PopulateOptions, Types } from 'mongoose';
 import { Permission } from '../common/authorization/permissions';
+import { TransactionRunner } from '../common/database/transaction-runner';
 import { DomainEventPublisher } from '../common/events/domain-event-publisher';
 import { paginate, Paginated } from '../common/pagination/pagination';
 import { diffChanges } from '../common/utils/diff';
@@ -12,32 +13,20 @@ import {
   ProjectAccessService,
 } from '../projects/project-access.service';
 import { assertDateRange } from '../projects/projects.service';
+import { TaskDependency } from '../task-dependencies/schemas/task-dependency.schema';
 import { PUBLIC_USER_SELECT } from '../users/public-user';
-import { UserSchemaName } from '../users/schemas/user.schema';
 import { assertCan } from '../workspaces/workspace-access.service';
 import {
   CreateTaskDto,
   ListTasksQueryDto,
   UpdateTaskDto,
 } from './dtos/task.dto';
-import {
-  assigneesOf,
-  Task,
-  TaskRecord,
-  TaskStatus,
-} from './schemas/task.schema';
+import { Task, TaskRecord, TaskStatus } from './schemas/task.schema';
 import { TaskAccessService } from './task-access.service';
 import { EMPTY_PROGRESS, Progress, progressBy } from './task-stats';
 
 export const TASK_POPULATE: PopulateOptions[] = [
   { path: 'assignees', select: PUBLIC_USER_SELECT },
-  // Pre-migration-002 documents; see `assigneesOf`.
-  {
-    path: 'assignee',
-    model: UserSchemaName,
-    select: PUBLIC_USER_SELECT,
-    strictPopulate: false,
-  },
   { path: 'labels', select: 'name color' },
 ];
 
@@ -47,10 +36,14 @@ export type TaskView = TaskRecord & { subtaskProgress: Progress };
 export class TasksService {
   constructor(
     @InjectModel(Task.name) private readonly taskModel: Model<Task>,
+    // Cascade target: edges of deleted tasks are removed.
+    @InjectModel(TaskDependency.name)
+    private readonly dependencyModel: Model<TaskDependency>,
     private readonly projectAccess: ProjectAccessService,
     private readonly taskAccess: TaskAccessService,
     private readonly labels: LabelsService,
     private readonly events: DomainEventPublisher,
+    private readonly tx: TransactionRunner,
   ) {}
 
   async create(
@@ -171,7 +164,7 @@ export class TasksService {
     const { assigneeIds, labelIds, ...fields } = dto;
     const patch: Partial<Task> = { ...fields };
 
-    const current = assigneesOf(task).map(String);
+    const current = task.assignees.map(String);
     const addedAssigneeIds =
       assigneeIds?.filter((id) => !current.includes(id)) ?? [];
     if (
@@ -192,7 +185,6 @@ export class TasksService {
     if (!Object.keys(changes).length) return this.getView(task._id);
 
     // Derived bookkeeping, not part of the user-visible change history.
-    if (!task.assignees) patch.assignees ??= assigneesOf(task);
     if (changes.status) {
       patch.completedAt = dto.status === TaskStatus.DONE ? new Date() : null;
     }
@@ -212,7 +204,7 @@ export class TasksService {
       entityId: String(task._id),
       title: updated.title,
       createdById: String(task.createdBy),
-      assigneeIds: assigneesOf(updated).map(String),
+      assigneeIds: updated.assignees.map(String),
       addedAssigneeIds,
       changes,
     });
@@ -226,13 +218,36 @@ export class TasksService {
       Permission.TASK_DELETE,
     );
     const now = new Date();
-    // Soft delete the task together with its subtasks.
-    await this.taskModel
-      .updateMany(
-        { $or: [{ _id: task._id }, { parentTask: task._id }], deletedAt: null },
-        { deletedAt: now },
-      )
-      .exec();
+    await this.tx.run(async (session) => {
+      const ids = [
+        task._id,
+        ...(await this.taskModel
+          .find({ parentTask: task._id, deletedAt: null })
+          .session(session)
+          .distinct('_id')
+          .exec()),
+      ];
+      // Soft delete the task together with its subtasks…
+      await this.taskModel
+        .updateMany(
+          { _id: { $in: ids }, deletedAt: null },
+          { deletedAt: now },
+          { session },
+        )
+        .exec();
+      // …and drop every dependency edge that touches one of them.
+      await this.dependencyModel
+        .deleteMany(
+          {
+            $or: [
+              { blockingTask: { $in: ids } },
+              { blockedTask: { $in: ids } },
+            ],
+          },
+          { session },
+        )
+        .exec();
+    });
 
     this.events.publish({
       type: 'task.deleted',
@@ -251,16 +266,10 @@ export class TasksService {
       'parentTask',
       tasks.filter((t) => !t.parentTask).map((t) => t._id),
     );
-    return tasks.map((task) => {
-      // Expose pre-migration `assignee` as `assignees` only.
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { assignee, ...rest } = task as TaskRecord & { assignee?: unknown };
-      return {
-        ...rest,
-        assignees: assigneesOf(task),
-        subtaskProgress: progress.get(String(task._id)) ?? EMPTY_PROGRESS,
-      };
-    });
+    return tasks.map((task) => ({
+      ...task,
+      subtaskProgress: progress.get(String(task._id)) ?? EMPTY_PROGRESS,
+    }));
   }
 
   private async getView(taskId: Types.ObjectId): Promise<TaskView> {
@@ -334,12 +343,11 @@ export class TasksService {
     access: ProjectAccess,
     assigneeIds: string[],
   ): Promise<void> {
-    const allowed = await Promise.all(
-      assigneeIds.map((id) =>
-        this.projectAccess.canAccess(id, access.project._id),
-      ),
+    const allowed = await this.projectAccess.usersWithAccess(
+      access.project._id,
+      assigneeIds,
     );
-    if (allowed.includes(false)) {
+    if (assigneeIds.some((id) => !allowed.has(id))) {
       throw new BadRequestException(
         'Assignees must be workspace members with access to this project',
       );

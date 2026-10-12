@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   HttpException,
@@ -22,6 +23,7 @@ import { ResetPasswordDto } from '../users/dtos/reset-password.dto';
 import { UpdateProfileDto } from '../users/dtos/update-profile.dto';
 import { Roles } from '../users/dtos/user.dto';
 import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
+import { isAvatarUrl, removeAvatarFile } from '../users/avatar-files';
 import { UsersService } from '../users/users.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 
@@ -37,6 +39,13 @@ const generateOtp = (): string => randomInt(100000, 1000000).toString();
 const minutesFromNow = (minutes: number): Date =>
   new Date(Date.now() + minutes * 60 * 1000);
 const normalizeEmail = (email: string): string => email.trim().toLowerCase();
+
+/** Deactivated accounts (platform admin action) cannot start or extend a session. */
+function assertActive(user: { isActive: boolean }): void {
+  if (!user.isActive) {
+    throw new ForbiddenException('This account has been deactivated.');
+  }
+}
 
 @Injectable()
 export class AuthService {
@@ -123,6 +132,7 @@ export class AuthService {
     if (!(await bcrypt.compare(dto.password, user.password))) {
       throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
     }
+    assertActive(user);
 
     return {
       success: true,
@@ -138,6 +148,7 @@ export class AuthService {
     if (!user) {
       throw new HttpException('Invalid refresh token', HttpStatus.UNAUTHORIZED);
     }
+    assertActive(user);
 
     // Rotate: the presented refresh token is single-use.
     await this.usersService.removeRefreshToken(user._id, dto.token);
@@ -220,7 +231,7 @@ export class AuthService {
   async deleteAccount(authUser: AuthUser) {
     const user = await this.findCurrentUser(authUser);
     await this.usersService.updateUser(user._id, {
-      isDeleted: true,
+      deletedAt: new Date(),
       isActive: false,
       refreshTokens: [],
     });
@@ -271,18 +282,27 @@ export class AuthService {
 
   async updateProfile(authUser: AuthUser, dto: UpdateProfileDto) {
     const user = await this.findCurrentUser(authUser);
+    // Clients echo the stored avatar back; anything else must be a URL.
+    // Uploaded files are only ever set by POST /users/me/avatar.
+    const avatarChanged =
+      dto.avatar !== undefined && dto.avatar !== user.avatar;
+    if (avatarChanged && !isAvatarUrl(dto.avatar)) {
+      throw new BadRequestException(
+        'avatar must be an https URL; upload images with POST /users/me/avatar',
+      );
+    }
 
     const updates = Object.fromEntries(
       Object.entries({
-        avatar: dto.avatar,
+        avatar: avatarChanged ? dto.avatar : undefined,
         dob: dto.dob,
         gender: dto.gender,
         bio: dto.bio,
         phone: dto.phone,
-        isActive: dto.isActive,
       }).filter(([, value]) => value !== undefined),
     );
     const updatedUser = await this.usersService.updateUser(user._id, updates);
+    if (avatarChanged) await removeAvatarFile(user.avatar);
 
     return {
       success: true,

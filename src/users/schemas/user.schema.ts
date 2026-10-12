@@ -5,8 +5,8 @@ import { Roles } from '../dtos/user.dto';
 const SECRET_FIELDS = [
   'password',
   'refreshTokens',
-  'passwordResetToken',
-  'passwordResetExpires',
+  'passwordResetOtp',
+  'passwordResetOtpExpiresAt',
   'emailOtp',
   'emailOtpExpiresAt',
   '__v',
@@ -96,19 +96,20 @@ export const UserSchema = new mongoose.Schema(
       default: [],
     },
 
-    passwordResetToken: {
+    passwordResetOtp: {
       type: String,
       default: null,
     },
 
-    passwordResetExpires: {
+    passwordResetOtpExpiresAt: {
       type: Date,
       default: null,
     },
 
-    isDeleted: {
-      type: Boolean,
-      default: false,
+    /** Soft delete: set when the account is closed. */
+    deletedAt: {
+      type: Date,
+      default: null,
     },
 
     emailOtp: {
@@ -123,6 +124,7 @@ export const UserSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    collection: 'users',
     toJSON: {
       transform: (_doc, ret: Record<string, unknown>) => {
         SECRET_FIELDS.forEach((field) => delete ret[field]);

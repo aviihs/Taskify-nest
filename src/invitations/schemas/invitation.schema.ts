@@ -11,7 +11,7 @@ export enum InvitationStatus {
   CANCELLED = 'CANCELLED',
 }
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'workspace_invitations' })
 export class WorkspaceInvitation {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Workspace', required: true })
   workspace: Types.ObjectId;
@@ -56,4 +56,7 @@ WorkspaceInvitationSchema.index(
     partialFilterExpression: { status: InvitationStatus.PENDING },
   },
 );
+// "Invitations sent to me".
 WorkspaceInvitationSchema.index({ email: 1, status: 1 });
+// Workspace invitation list, newest first.
+WorkspaceInvitationSchema.index({ workspace: 1, createdAt: -1 });

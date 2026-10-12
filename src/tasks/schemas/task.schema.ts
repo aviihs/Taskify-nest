@@ -22,7 +22,7 @@ export enum TaskPriority {
  * `parentTask` set. Progress of a parent is computed from its children at
  * read time — never stored.
  */
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'tasks' })
 export class Task {
   /** Denormalised from the project so workspace-scoped queries (search, dashboard, my tasks) need no join. */
   @Prop({
@@ -110,19 +110,10 @@ export class Task {
 
 export type TaskRecord = Persisted<Task>;
 
-/**
- * Documents written before migration 002 hold a single `assignee` instead of
- * `assignees`. Read assignees through this until that migration has run.
- */
-export function assigneesOf<T>(task: { assignees?: T[] }): T[] {
-  const legacy = (task as { assignee?: T | null }).assignee;
-  return task.assignees ?? (legacy ? [legacy] : []);
-}
 export const TaskSchema = SchemaFactory.createForClass(Task);
 
 TaskSchema.index({ project: 1, deletedAt: 1, status: 1, position: 1 });
 TaskSchema.index({ assignees: 1, deletedAt: 1, status: 1, dueDate: 1 });
-TaskSchema.index({ workspace: 1, deletedAt: 1, dueDate: 1 });
 TaskSchema.index({ parentTask: 1 });
 TaskSchema.index({ labels: 1 });
 TaskSchema.index({ status: 1, dueDate: 1, dueReminderSentAt: 1 });

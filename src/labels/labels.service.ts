@@ -7,9 +7,11 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Permission } from '../common/authorization/permissions';
+import { TransactionRunner } from '../common/database/transaction-runner';
 import { DomainEventPublisher } from '../common/events/domain-event-publisher';
 import { isDuplicateKeyError } from '../common/utils/mongo-errors';
 import { toObjectId, toObjectIds } from '../common/utils/query';
+import { Task } from '../tasks/schemas/task.schema';
 import { WorkspaceAccessService } from '../workspaces/workspace-access.service';
 import { CreateLabelDto, UpdateLabelDto } from './dtos/label.dto';
 import { Label, LabelRecord } from './schemas/label.schema';
@@ -20,8 +22,11 @@ const CASE_INSENSITIVE = { locale: 'en', strength: 2 };
 export class LabelsService {
   constructor(
     @InjectModel(Label.name) private readonly labelModel: Model<Label>,
+    // Cascade target: a deleted label is removed from every task.
+    @InjectModel(Task.name) private readonly taskModel: Model<Task>,
     private readonly access: WorkspaceAccessService,
     private readonly events: DomainEventPublisher,
+    private readonly tx: TransactionRunner,
   ) {}
 
   async list(userId: string, workspaceId: string): Promise<LabelRecord[]> {
@@ -74,7 +79,16 @@ export class LabelsService {
 
   async remove(userId: string, labelId: string): Promise<void> {
     const label = await this.authorizeLabel(userId, labelId);
-    await this.labelModel.deleteOne({ _id: label._id }).exec();
+    await this.tx.run(async (session) => {
+      await this.labelModel.deleteOne({ _id: label._id }, { session }).exec();
+      await this.taskModel
+        .updateMany(
+          { workspace: label.workspace, labels: label._id },
+          { $pull: { labels: label._id } },
+          { session },
+        )
+        .exec();
+    });
     this.events.publish({
       type: 'label.deleted',
       actorId: userId,

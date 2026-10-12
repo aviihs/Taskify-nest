@@ -1,6 +1,8 @@
 import { INestApplication } from '@nestjs/common';
+import { getConnectionToken } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
 import { randomUUID } from 'crypto';
+import { Connection } from 'mongoose';
 import * as request from 'supertest';
 
 export interface SentEmail {
@@ -58,9 +60,9 @@ export interface TestAppOptions {
 export async function createTestApp({
   overrides = [],
 }: TestAppOptions = {}): Promise<TestContext> {
-  process.env.MONGO_URI = `${
-    process.env.TEST_MONGO_BASE_URI
-  }taskify-${randomUUID()}`;
+  const uri = new URL(process.env.TEST_MONGO_BASE_URI);
+  uri.pathname = `/taskify-${randomUUID()}`;
+  process.env.MONGO_URI = uri.toString();
 
   const { AppModule } = await import('../../src/app.module');
   const { configureApp } = await import('../../src/app.setup');
@@ -78,6 +80,9 @@ export async function createTestApp({
 
   const app = configureApp(moduleRef.createNestApplication());
   await app.init();
+  // Collections and indexes must exist before the first transaction uses them.
+  const connection = moduleRef.get<Connection>(getConnectionToken());
+  await Promise.all(Object.values(connection.models).map((m) => m.init()));
   const auth = moduleRef.get(AuthService);
 
   const http = () => request(app.getHttpServer());

@@ -8,8 +8,6 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Permission } from '../common/authorization/permissions';
 import { DomainEventPublisher } from '../common/events/domain-event-publisher';
-import { TaskDeletedEvent } from '../common/events/domain-events';
-import { OnDomainEvent } from '../common/events/on-domain-event.decorator';
 import { isDuplicateKeyError } from '../common/utils/mongo-errors';
 import { idEquals, toObjectId } from '../common/utils/query';
 import { Task, TaskRecord, TaskStatus } from '../tasks/schemas/task.schema';
@@ -175,14 +173,6 @@ export class TaskDependenciesService {
       blockingTaskId: String(removed.blockingTask),
       blockedTaskId: String(removed.blockedTask),
     });
-  }
-
-  @OnDomainEvent('task.deleted')
-  async onTaskDeleted(event: TaskDeletedEvent): Promise<void> {
-    const id = toObjectId(event.entityId);
-    await this.dependencyModel
-      .deleteMany({ $or: [{ blockingTask: id }, { blockedTask: id }] })
-      .exec();
   }
 
   /**

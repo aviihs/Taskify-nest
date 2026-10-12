@@ -1,5 +1,10 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import {
+  ProjectMember,
+  ProjectMemberSchema,
+} from '../projects/schemas/project-member.schema';
+import { Task, TaskSchema } from '../tasks/schemas/task.schema';
 import { Workspace, WorkspaceSchema } from './schemas/workspace.schema';
 import {
   WorkspaceMember,
@@ -15,6 +20,9 @@ import { WorkspacesService } from './workspaces.service';
     MongooseModule.forFeature([
       { name: Workspace.name, schema: WorkspaceSchema },
       { name: WorkspaceMember.name, schema: WorkspaceMemberSchema },
+      // Written only by the member-removal cascade.
+      { name: ProjectMember.name, schema: ProjectMemberSchema },
+      { name: Task.name, schema: TaskSchema },
     ]),
   ],
   controllers: [WorkspacesController],

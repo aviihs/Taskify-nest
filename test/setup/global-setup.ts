@@ -1,14 +1,17 @@
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
 declare global {
   // eslint-disable-next-line no-var
-  var __MONGOD__: MongoMemoryServer;
+  var __MONGOD__: MongoMemoryReplSet;
 }
 
 export default async function globalSetup(): Promise<void> {
-  const mongod = await MongoMemoryServer.create();
+  // A replica set (not a standalone server): services use transactions.
+  const mongod = await MongoMemoryReplSet.create({
+    replSet: { count: 1, storageEngine: 'wiredTiger' },
+  });
   globalThis.__MONGOD__ = mongod;
   // Inherited by test workers; each test file appends its own database name.
   process.env.TEST_MONGO_BASE_URI = mongod.getUri();

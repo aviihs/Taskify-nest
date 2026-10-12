@@ -6,7 +6,7 @@ import { Persisted } from '../../common/types/persisted';
  * Grants a workspace member visibility of a project. What they may do inside
  * it is still decided by their workspace role.
  */
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'project_members' })
 export class ProjectMember {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Project', required: true })
   project: Types.ObjectId;

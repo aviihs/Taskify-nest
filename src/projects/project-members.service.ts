@@ -8,8 +8,6 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Permission } from '../common/authorization/permissions';
 import { DomainEventPublisher } from '../common/events/domain-event-publisher';
-import { MemberRemovedEvent } from '../common/events/domain-events';
-import { OnDomainEvent } from '../common/events/on-domain-event.decorator';
 import { isDuplicateKeyError } from '../common/utils/mongo-errors';
 import { idEquals, toObjectId } from '../common/utils/query';
 import { PUBLIC_USER_SELECT } from '../users/public-user';
@@ -121,16 +119,5 @@ export class ProjectMembersService {
       userId: targetUserId,
       projectName: project.name,
     });
-  }
-
-  /** Leaving a workspace revokes every project membership inside it. */
-  @OnDomainEvent('workspace.member.removed')
-  async onWorkspaceMemberRemoved(event: MemberRemovedEvent): Promise<void> {
-    await this.projectMemberModel
-      .deleteMany({
-        workspace: toObjectId(event.workspaceId),
-        user: toObjectId(event.userId),
-      })
-      .exec();
   }
 }

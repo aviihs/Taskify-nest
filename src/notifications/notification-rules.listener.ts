@@ -17,7 +17,9 @@ const taskLink = (taskId: string) => `/tasks/${taskId}`;
 
 /**
  * Decides who hears about what. Business services only publish domain
- * events; this is the single place notification policy lives.
+ * events; this is the single place notification policy lives. Every
+ * task/comment/project rule passes its `projectId`, so `notify` drops
+ * recipients who lost access in the meantime.
  */
 @Injectable()
 export class NotificationRulesListener {
@@ -36,6 +38,7 @@ export class NotificationRulesListener {
       message: `You were assigned "${event.title}"`,
       actorId: event.actorId,
       workspaceId: event.workspaceId,
+      projectId: event.projectId,
       entityType: 'task',
       entityId: event.entityId,
       link: taskLink(event.entityId),
@@ -47,6 +50,7 @@ export class NotificationRulesListener {
     const base = {
       actorId: event.actorId,
       workspaceId: event.workspaceId,
+      projectId: event.projectId,
       entityType: 'task',
       entityId: event.entityId,
       link: taskLink(event.entityId),
@@ -73,6 +77,7 @@ export class NotificationRulesListener {
     const base = {
       actorId: event.actorId,
       workspaceId: event.workspaceId,
+      projectId: event.projectId,
       entityType: 'task',
       entityId: event.taskId,
       link: taskLink(event.taskId),
@@ -100,6 +105,7 @@ export class NotificationRulesListener {
       message: `You were added to the project "${event.projectName}"`,
       actorId: event.actorId,
       workspaceId: event.workspaceId,
+      projectId: event.projectId,
       entityType: 'project',
       entityId: event.projectId,
       link: `/projects/${event.projectId}`,

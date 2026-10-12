@@ -10,7 +10,7 @@ export enum ProjectStatus {
   CANCELLED = 'CANCELLED',
 }
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'projects' })
 export class Project {
   @Prop({
     type: SchemaTypes.ObjectId,

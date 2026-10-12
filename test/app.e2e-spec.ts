@@ -51,7 +51,7 @@ describe('Auth & personal workspace (e2e)', () => {
       'password',
       'refreshTokens',
       'emailOtp',
-      'passwordResetToken',
+      'passwordResetOtp',
     ]) {
       expect(me.body).not.toHaveProperty(field);
     }

@@ -34,7 +34,7 @@ bun run start:dev
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `MONGO_URI` | Yes | MongoDB connection string |
+| `MONGO_URI` | Yes | MongoDB connection string. Must be a replica set (Atlas, or a local `mongod --replSet`), because the API uses transactions. |
 | `JWT_SECRET` | Yes | Signs access and refresh tokens |
 | `PORT` | No | Defaults to 3000 |
 | `RESEND_API_KEY`, `EMAIL_FROM` | For email | OTP, password reset and invitation emails |
@@ -57,6 +57,8 @@ Use `bun run <script>`: plain `bun test` and `bun build` start Bun's own test ru
 | `bun run test` | Unit tests |
 | `bun run test:e2e` | End-to-end tests; starts its own in-memory MongoDB, no setup needed |
 | `bun run migrate` / `bun run migrate:prod` | Run pending data migrations (dev / built) |
+| `bun run db:check` | Read-only integrity report: orphans, scope mismatches, duplicates (exit 1 on errors) |
+| `bun run db:reset-dev` | **Destructive.** Wipe a development database and load seed data; guarded, see `docs/DATA_MODEL.md` §8 |
 
 ## Project structure
 
@@ -65,7 +67,7 @@ src/
 ├── main.ts, app.setup.ts     bootstrap, validation pipe, error filter, Swagger
 ├── app.module.ts             wires every module, global guards, throttling
 ├── common/                   permissions, guards, decorators, events, pagination, email, utils
-├── database/                 Mongo connection and migrations
+├── database/                 Mongo connection, model registry, migrations, db:check, dev seed
 ├── auth/  users/             registration, login, tokens, profile
 ├── workspaces/               workspaces, members, roles, workspace access checks
 ├── invitations/              invite by email, accept / decline / cancel

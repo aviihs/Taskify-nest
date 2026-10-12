@@ -71,6 +71,52 @@ export class ProjectAccessService {
     }
   }
 
+  /**
+   * The subset of `userIds` who can currently see the project: an ACTIVE
+   * member of its live workspace whose role reads every project, or who has a
+   * project membership. A few queries for any number of users — use this
+   * instead of calling `canAccess` in a loop.
+   */
+  async usersWithAccess(
+    projectId: string | Types.ObjectId,
+    userIds: Array<string | Types.ObjectId>,
+  ): Promise<Set<string>> {
+    const wanted = [...new Set(userIds.map(String))];
+    if (!wanted.length) return new Set();
+    const project = await this.projectModel
+      .findOne({ _id: projectId, deletedAt: null })
+      .select('workspace')
+      .lean<ProjectRecord>()
+      .exec();
+    if (
+      !project ||
+      !(await this.workspaceAccess.workspaceExists(project.workspace))
+    ) {
+      return new Set();
+    }
+
+    const members = await this.workspaceAccess.activeMembers(
+      project.workspace,
+      wanted,
+    );
+    const allowed = new Set(
+      members
+        .filter((m) => roleHasPermission(m.role, Permission.PROJECT_READ_ALL))
+        .map((m) => String(m.user)),
+    );
+    const restricted = members
+      .filter((m) => !allowed.has(String(m.user)))
+      .map((m) => m.user);
+    if (restricted.length) {
+      const visible: Types.ObjectId[] = await this.projectMemberModel
+        .find({ project: project._id, user: { $in: restricted } })
+        .distinct('user')
+        .exec();
+      visible.forEach((id) => allowed.add(String(id)));
+    }
+    return allowed;
+  }
+
   /** Mongo filter selecting the projects of one workspace the caller can see. */
   async visibleProjectsFilter(
     access: WorkspaceAccess,

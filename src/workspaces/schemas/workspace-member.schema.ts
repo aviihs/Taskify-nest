@@ -9,7 +9,7 @@ export enum MemberStatus {
 }
 
 /** User + Workspace + Role. The only place a user's workspace role is stored. */
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'workspace_members' })
 export class WorkspaceMember {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Workspace', required: true })
   workspace: Types.ObjectId;
