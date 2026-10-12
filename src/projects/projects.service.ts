@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Permission } from '../common/authorization/permissions';
@@ -8,7 +12,10 @@ import { diffChanges } from '../common/utils/diff';
 import { containsInsensitive, toObjectId } from '../common/utils/query';
 import { Task } from '../tasks/schemas/task.schema';
 import { EMPTY_PROGRESS, Progress, progressBy } from '../tasks/task-stats';
-import { WorkspaceAccessService } from '../workspaces/workspace-access.service';
+import {
+  can,
+  WorkspaceAccessService,
+} from '../workspaces/workspace-access.service';
 import {
   CreateProjectDto,
   ListProjectsQueryDto,
@@ -144,11 +151,15 @@ export class ProjectsService {
   }
 
   async remove(userId: string, projectId: string): Promise<void> {
-    const { project } = await this.projectAccess.authorize(
+    const access = await this.projectAccess.authorize(
       userId,
       projectId,
-      Permission.PROJECT_DELETE,
+      Permission.PROJECT_READ,
     );
+    if (!can(access, Permission.PROJECT_DELETE)) {
+      throw new ForbiddenException('Only admins can delete the project');
+    }
+    const { project } = access;
     // Soft delete. Tasks become unreachable because every task access check
     // resolves its project first.
     await this.projectModel
