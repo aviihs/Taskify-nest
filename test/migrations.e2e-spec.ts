@@ -16,7 +16,7 @@ describe('Migration 001: legacy data → workspace model (e2e)', () => {
     const owner = new Types.ObjectId(legacyUser.id);
     // Simulate an account that predates workspaces.
     await db.collection('workspaces').deleteMany({ owner });
-    await db.collection('workspacemembers').deleteMany({ user: owner });
+    await db.collection('workspace_members').deleteMany({ user: owner });
     await db
       .collection('users')
       .updateOne({ _id: owner }, { $set: { role: 'MANAGER' } });
@@ -71,6 +71,7 @@ describe('Migration 001: legacy data → workspace model (e2e)', () => {
     expect(await runMigrations(db, () => undefined)).toEqual([
       '001-workspace-model',
       '002-multi-assignee-and-usernames',
+      '003-canonical-names',
     ]);
     expect(await runMigrations(db, () => undefined)).toEqual([]);
 
@@ -135,6 +136,11 @@ describe('Migration 002: multi-assignee + case-insensitive usernames (e2e)', () 
       { upsert: true },
     );
     await ledger.deleteOne({ _id: '002-multi-assignee-and-usernames' });
+    await ledger.updateOne(
+      { _id: '003-canonical-names' },
+      { $setOnInsert: { appliedAt: new Date() } },
+      { upsert: true },
+    );
   });
   afterAll(() => ctx.close());
 
@@ -206,75 +212,117 @@ describe('Migration 002: multi-assignee + case-insensitive usernames (e2e)', () 
   });
 });
 
-describe('Tasks saved before migration 002 (e2e)', () => {
+describe('Migration 003: canonical collection and field names (e2e)', () => {
   let ctx: TestContext;
   let db: Connection['db'];
+
+  const resetLedgerTo002 = () =>
+    Promise.all(
+      ['001-workspace-model', '002-multi-assignee-and-usernames'].map((id) =>
+        db
+          .collection<{ _id: string; appliedAt: Date }>('_migrations')
+          .updateOne(
+            { _id: id },
+            { $setOnInsert: { appliedAt: new Date() } },
+            { upsert: true },
+          ),
+      ),
+    ).then(() =>
+      db.collection<{ _id: string }>('_migrations').deleteOne({
+        _id: '003-canonical-names',
+      }),
+    );
 
   beforeAll(async () => {
     ctx = await createTestApp();
     db = ctx.app.get<Connection>(getConnectionToken()).db;
-    const ledger = db.collection<{ _id: string; appliedAt: Date }>(
-      '_migrations',
-    );
-    await ledger.updateOne(
-      { _id: '001-workspace-model' },
-      { $setOnInsert: { appliedAt: new Date() } },
-      { upsert: true },
-    );
-    await ledger.deleteOne({ _id: '002-multi-assignee-and-usernames' });
   });
   afterAll(() => ctx.close());
 
-  it('can be read, edited and commented on, and keep their assignee', async () => {
-    const user = await ctx.signUp('legacyedit');
-    const [personal] = (await ctx.as(user).get('/workspaces').expect(200)).body;
-    const project = (
-      await ctx
-        .as(user)
-        .post(`/workspaces/${personal._id}/projects`)
-        .send({ name: 'Old' })
-        .expect(201)
-    ).body._id;
-    const taskId = (
-      await ctx
-        .as(user)
-        .post(`/projects/${project}/tasks`)
-        .send({ title: 'Before' })
-        .expect(201)
-    ).body._id;
-    // Shape written by the previous release.
-    await db.collection('tasks').updateOne(
-      { _id: new Types.ObjectId(taskId) },
+  it('renames old collections, merges into ones the app already wrote, and converts user fields', async () => {
+    await resetLedgerTo002();
+    const member = await ctx.signUp('renamed');
+    const owner = new Types.ObjectId(member.id);
+
+    // Rows written by the previous release under the old names.
+    const oldInvitation = (
+      await db.collection('workspaceinvitations').insertOne({
+        workspace: new Types.ObjectId(),
+        email: 'old@taskify.test',
+        role: 'MEMBER',
+        status: 'DECLINED',
+        invitedBy: owner,
+        expiresAt: new Date(),
+      })
+    ).insertedId;
+    const oldMembership = (
+      await db.collection('workspacemembers').insertOne({
+        workspace: new Types.ObjectId(),
+        user: owner,
+        role: 'MEMBER',
+        status: 'ACTIVE',
+      })
+    ).insertedId;
+    await db.collection('users').updateOne(
+      { _id: owner },
       {
-        $set: { assignee: new Types.ObjectId(user.id) },
-        $unset: { assignees: '' },
+        $set: {
+          isDeleted: false,
+          passwordResetToken: '123456',
+          passwordResetExpires: new Date(),
+        },
+        $unset: { deletedAt: '', passwordResetOtp: '' },
       },
     );
 
-    const read = await ctx.as(user).get(`/tasks/${taskId}`).expect(200);
-    expect(read.body.assignees.map((u) => u._id)).toEqual([user.id]);
-    expect(read.body).not.toHaveProperty('assignee');
+    expect(await runMigrations(db, () => undefined)).toEqual([
+      '003-canonical-names',
+    ]);
 
-    // What the app's edit form sends back.
-    const saved = await ctx
-      .as(user)
-      .patch(`/tasks/${taskId}`)
-      .send({ title: 'After', assigneeIds: [user.id] })
-      .expect(200);
-    expect(saved.body.title).toBe('After');
-    expect(saved.body.assignees.map((u) => u._id)).toEqual([user.id]);
+    const names = (await db.listCollections().toArray()).map((c) => c.name);
+    expect(names).not.toContain('workspaceinvitations');
+    expect(names).not.toContain('workspacemembers');
+    // Renamed (workspace_invitations did not exist yet in this database or was empty)…
+    expect(
+      await db
+        .collection('workspace_invitations')
+        .findOne({ _id: oldInvitation }),
+    ).toBeTruthy();
+    // …and merged next to the rows the new app wrote at sign-up.
+    const members = db.collection('workspace_members');
+    expect(await members.findOne({ _id: oldMembership })).toBeTruthy();
+    expect(await members.countDocuments({ user: owner })).toBe(2);
 
-    await ctx
-      .as(user)
-      .post(`/tasks/${taskId}/comments`)
-      .send({ content: 'still works' })
-      .expect(201);
+    const user = await db.collection('users').findOne({ _id: owner });
+    expect(user).toMatchObject({ deletedAt: null, passwordResetOtp: '123456' });
+    expect(user).not.toHaveProperty('isDeleted');
+    expect(user).not.toHaveProperty('passwordResetToken');
+    expect(user.passwordResetOtpExpiresAt).toBeInstanceOf(Date);
 
-    await runMigrations(db, () => undefined);
-    const stored = await db
-      .collection('tasks')
-      .findOne({ _id: new Types.ObjectId(taskId) });
-    expect(stored.assignees.map(String)).toEqual([user.id]);
-    expect(stored).not.toHaveProperty('assignee');
+    // The signed-up user still works through the API after the move.
+    await ctx.as(member).get('/workspaces').expect(200);
+  });
+
+  it('refuses to merge a conflicting document and keeps the old collection', async () => {
+    await resetLedgerTo002();
+    const member = await ctx.signUp('conflict');
+    const [personal] = (await ctx.as(member).get('/workspaces').expect(200))
+      .body;
+    // Same (workspace, user) as the live membership: breaks the unique index.
+    await db.collection('workspacemembers').insertOne({
+      workspace: new Types.ObjectId(personal._id),
+      user: new Types.ObjectId(member.id),
+      role: 'VIEWER',
+      status: 'ACTIVE',
+    });
+
+    await expect(runMigrations(db, () => undefined)).rejects.toThrow(
+      /Cannot merge workspacemembers into workspace_members/,
+    );
+    expect(await db.collection('workspacemembers').countDocuments()).toBe(1);
+    await db.collection('workspacemembers').drop();
+    expect(await runMigrations(db, () => undefined)).toEqual([
+      '003-canonical-names',
+    ]);
   });
 });

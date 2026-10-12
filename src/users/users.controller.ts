@@ -18,27 +18,24 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
-import { unlink } from 'fs/promises';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
 import { randomUUID } from 'crypto';
-import { env } from '../common/config/env.config';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { ParseObjectIdPipe } from '../common/pipes/parse-object-id.pipe';
 import { AuthUser } from '../common/types/auth-user';
+import {
+  AVATAR_DIR,
+  avatarFilePath,
+  removeAvatarFile,
+  storedAvatarFor,
+} from './avatar-files';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { Roles as PlatformRole } from './dtos/user.dto';
 import { PUBLIC_USER_FIELDS } from './public-user';
 import { UsersService } from './users.service';
-
-const AVATAR_DIR = join(env.uploadDir, 'avatars');
-/** Deletes an uploaded avatar file; external URLs and missing files are ignored. */
-async function removeStoredAvatar(avatar?: string | null): Promise<void> {
-  if (!avatar || /^https?:\/\//.test(avatar)) return;
-  await unlink(avatar).catch(() => undefined);
-}
 
 const AVATAR_MIME_TYPES = [
   'image/jpeg',
@@ -109,9 +106,9 @@ export class UsersController {
     const previous = await this.usersService.findById(user.id);
     const updated = await this.usersService.updateAvatar(
       user.id,
-      join(AVATAR_DIR, file.filename),
+      storedAvatarFor(file.filename),
     );
-    await removeStoredAvatar(previous?.avatar);
+    await removeAvatarFile(previous?.avatar);
     return { message: 'Avatar uploaded', avatar: updated.avatar };
   }
 
@@ -121,7 +118,7 @@ export class UsersController {
     const found = await this.usersService.findById(user.id);
     if (!found) throw new NotFoundException('User not found');
     await this.usersService.updateAvatar(user.id, null);
-    await removeStoredAvatar(found.avatar);
+    await removeAvatarFile(found.avatar);
     return { message: 'Avatar removed', avatar: null };
   }
 
@@ -144,10 +141,9 @@ export class UsersController {
     @Res() res: Response,
   ) {
     const user = await this.usersService.findById(id);
-    if (!user?.avatar || /^https?:\/\//.test(user.avatar)) {
-      throw new NotFoundException('Avatar not found');
-    }
-    return res.sendFile(user.avatar, { root: '.' });
+    const path = avatarFilePath(user?.avatar);
+    if (!path) throw new NotFoundException('Avatar not found');
+    return res.sendFile(path);
   }
 
   @Roles(PlatformRole.ADMIN)
@@ -169,7 +165,11 @@ export class UsersController {
   @Roles(PlatformRole.ADMIN)
   @Patch(':id/deactivate')
   deactivate(@Param('id', ParseObjectIdPipe) id: string) {
-    return this.usersService.updateUser(id, { isActive: false });
+    // Ends every session: refresh is refused for inactive accounts anyway.
+    return this.usersService.updateUser(id, {
+      isActive: false,
+      refreshTokens: [],
+    });
   }
 
   @Roles(PlatformRole.ADMIN)
@@ -177,7 +177,7 @@ export class UsersController {
   @ApiOperation({ summary: 'Soft-delete a user (platform admin)' })
   delete(@Param('id', ParseObjectIdPipe) id: string) {
     return this.usersService.updateUser(id, {
-      isDeleted: true,
+      deletedAt: new Date(),
       isActive: false,
       refreshTokens: [],
     });

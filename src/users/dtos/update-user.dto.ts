@@ -6,6 +6,7 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  IsUrl,
   Matches,
   MaxLength,
   MinLength,
@@ -37,9 +38,9 @@ export class UpdateUserDto {
   @IsEnum(Roles)
   role?: Roles;
 
-  @ApiProperty({ required: false })
+  @ApiProperty({ required: false, description: 'An https URL' })
   @IsOptional()
-  @IsString()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
   avatar?: string;
 
   @ApiPropertyOptional({

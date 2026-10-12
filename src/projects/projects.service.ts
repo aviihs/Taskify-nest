@@ -6,6 +6,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Permission } from '../common/authorization/permissions';
+import { TransactionRunner } from '../common/database/transaction-runner';
 import { DomainEventPublisher } from '../common/events/domain-event-publisher';
 import { paginate, Paginated } from '../common/pagination/pagination';
 import { diffChanges } from '../common/utils/diff';
@@ -43,6 +44,7 @@ export class ProjectsService {
     private readonly workspaceAccess: WorkspaceAccessService,
     private readonly projectAccess: ProjectAccessService,
     private readonly events: DomainEventPublisher,
+    private readonly tx: TransactionRunner,
   ) {}
 
   async create(
@@ -57,17 +59,24 @@ export class ProjectsService {
     );
     assertDateRange(dto.startDate, dto.dueDate);
 
-    const project = await this.projectModel.create({
-      ...dto,
-      workspace: workspace._id,
-      createdBy: toObjectId(userId),
-    });
-    // The creator always sees their own project, whatever their role.
-    await this.projectMemberModel.create({
-      project: project._id,
-      workspace: workspace._id,
-      user: toObjectId(userId),
-      addedBy: toObjectId(userId),
+    const project = await this.tx.run(async (session) => {
+      const [created] = await this.projectModel.create(
+        [{ ...dto, workspace: workspace._id, createdBy: toObjectId(userId) }],
+        { session },
+      );
+      // The creator always sees their own project, whatever their role.
+      await this.projectMemberModel.create(
+        [
+          {
+            project: created._id,
+            workspace: workspace._id,
+            user: toObjectId(userId),
+            addedBy: toObjectId(userId),
+          },
+        ],
+        { session },
+      );
+      return created;
     });
 
     this.events.publish({
@@ -124,9 +133,10 @@ export class ProjectsService {
       projectId,
       Permission.PROJECT_UPDATE,
     );
+    // `null` clears a date, `undefined` keeps it.
     assertDateRange(
-      dto.startDate ?? project.startDate,
-      dto.dueDate ?? project.dueDate,
+      dto.startDate === undefined ? project.startDate : dto.startDate,
+      dto.dueDate === undefined ? project.dueDate : dto.dueDate,
     );
 
     const changes = diffChanges(project, dto);

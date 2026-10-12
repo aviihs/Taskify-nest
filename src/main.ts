@@ -4,6 +4,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { configureApp } from './app.setup';
 import { assertRequiredEnv, env } from './common/config/env.config';
+import { serverUrls } from './common/utils/network';
 
 async function bootstrap() {
   assertRequiredEnv();
@@ -53,10 +54,9 @@ async function bootstrap() {
 
   const port = env.port;
   await app.listen(port, '0.0.0.0');
-  logger.log(`✓ Application is running on http://localhost:${port}`);
-  logger.log(
-    `✓ Swagger documentation available at http://localhost:${port}/api`,
-  );
+  for (const { label, url } of serverUrls(port, env.nodeEnv)) {
+    logger.log(`✓ ${label.padEnd(7)} ${url}  (docs: ${url}/api)`);
+  }
   logger.log(`✓ Health check available at http://localhost:${port}/health`);
 }
 bootstrap();

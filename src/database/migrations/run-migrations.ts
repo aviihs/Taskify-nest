@@ -1,11 +1,13 @@
 import { workspaceModelMigration } from './001-workspace-model';
 import { multiAssigneeAndUsernamesMigration } from './002-multi-assignee-and-usernames';
+import { canonicalNamesMigration } from './003-canonical-names';
 import { Db, Migration } from './migration';
 
 /** Ordered list. Append only. */
 export const MIGRATIONS: Migration[] = [
   workspaceModelMigration,
   multiAssigneeAndUsernamesMigration,
+  canonicalNamesMigration,
 ];
 
 const LEDGER = '_migrations';

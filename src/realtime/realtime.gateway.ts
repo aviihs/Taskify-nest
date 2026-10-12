@@ -16,6 +16,8 @@ import {
   InvitationClosedEvent,
   InvitationCreatedEvent,
   MemberRemovedEvent,
+  MemberRoleChangedEvent,
+  MemberStatusChangedEvent,
   NOTIFICATION_CREATED,
   NotificationCreatedEvent,
   ProjectMemberRemovedEvent,
@@ -156,12 +158,26 @@ export class RealtimeGateway implements OnGatewayConnection {
     });
   }
 
-  /** Revoked access must also revoke live subscriptions. */
-  @OnDomainEvent('workspace.member.removed')
-  onWorkspaceMemberRemoved(event: MemberRemovedEvent): void {
-    // Forces a reconnect, after which every room is re-authorized.
+  /**
+   * Revoked or reduced access must also revoke live subscriptions: removal,
+   * suspension, or a role that no longer sees every project. Forces a
+   * reconnect, after which every room is re-authorized.
+   */
+  @OnDomainEvent(
+    'workspace.member.removed',
+    'workspace.member.role_changed',
+    'workspace.member.status_changed',
+  )
+  onMembershipChanged(
+    event:
+      | MemberRemovedEvent
+      | MemberRoleChangedEvent
+      | MemberStatusChangedEvent,
+  ): void {
     this.server.in(rooms.user(event.userId)).disconnectSockets(true);
-    this.logger.debug(`Disconnected sockets of removed member ${event.userId}`);
+    this.logger.debug(
+      `Disconnected sockets of ${event.userId} after ${event.type}`,
+    );
   }
 
   @OnDomainEvent('project.member.removed')

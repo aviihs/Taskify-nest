@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
 import {
   Permission,
   roleHasPermission,
@@ -113,10 +113,40 @@ export class WorkspaceAccessService {
 
   async workspaceExists(
     workspaceId: string | Types.ObjectId,
+    session?: ClientSession,
   ): Promise<boolean> {
     return Boolean(
-      await this.workspaceModel.exists({ _id: workspaceId, deletedAt: null }),
+      await this.workspaceModel
+        .exists({ _id: workspaceId, deletedAt: null })
+        .session(session ?? null),
     );
+  }
+
+  /** The user's membership in any status (ACTIVE or SUSPENDED), or null. */
+  membershipOf(
+    workspaceId: string | Types.ObjectId,
+    userId: string | Types.ObjectId,
+  ): Promise<WorkspaceMemberRecord | null> {
+    return this.memberModel
+      .findOne({ workspace: workspaceId, user: userId })
+      .lean<WorkspaceMemberRecord>()
+      .exec();
+  }
+
+  /** ACTIVE memberships of the given users in one workspace (one query for many users). */
+  activeMembers(
+    workspaceId: string | Types.ObjectId,
+    userIds: Array<string | Types.ObjectId>,
+  ): Promise<WorkspaceMemberRecord[]> {
+    return this.memberModel
+      .find({
+        workspace: workspaceId,
+        user: { $in: userIds.map(toObjectId) },
+        status: MemberStatus.ACTIVE,
+      })
+      .select('user role')
+      .lean<WorkspaceMemberRecord[]>()
+      .exec();
   }
 
   /** True when the user is an active member — used to validate assignees, mentions, project members. */

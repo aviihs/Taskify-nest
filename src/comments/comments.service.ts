@@ -15,7 +15,7 @@ import {
 } from '../common/pagination/pagination';
 import { idEquals, toObjectId } from '../common/utils/query';
 import { ProjectAccessService } from '../projects/project-access.service';
-import { assigneesOf, TaskRecord } from '../tasks/schemas/task.schema';
+import { TaskRecord } from '../tasks/schemas/task.schema';
 import { TaskAccess, TaskAccessService } from '../tasks/task-access.service';
 import { PUBLIC_USER_SELECT } from '../users/public-user';
 import { UsersService } from '../users/users.service';
@@ -58,7 +58,10 @@ export class CommentsService {
     )) as Paginated<CommentRecord>;
 
     const replies = await this.commentModel
-      .find({ parentComment: { $in: page.items.map((c) => c._id) } })
+      .find({
+        task: task._id,
+        parentComment: { $in: page.items.map((c) => c._id) },
+      })
       .sort({ createdAt: 1 })
       .populate(AUTHOR_POPULATE)
       .lean<CommentRecord[]>()
@@ -104,7 +107,7 @@ export class CommentsService {
     });
 
     const watchers = [
-      ...new Set([task.createdBy, ...assigneesOf(task)].map(String)),
+      ...new Set([task.createdBy, ...task.assignees].map(String)),
     ].filter((id) => id !== userId);
     this.events.publish({
       type: 'comment.created',
@@ -210,19 +213,14 @@ export class CommentsService {
     authorId: string,
   ): Promise<Types.ObjectId[]> {
     const userNames = [...content.matchAll(MENTION_PATTERN)].map((m) => m[1]);
-    const candidates = await this.users.findIdsByUserNames([
-      ...new Set(userNames),
-    ]);
-    const visible = await Promise.all(
-      candidates
-        .filter((id) => !idEquals(id, authorId))
-        .map(async (id) =>
-          (await this.projectAccess.canAccess(String(id), task.project))
-            ? id
-            : null,
-        ),
+    const candidates = (
+      await this.users.findIdsByUserNames([...new Set(userNames)])
+    ).filter((id) => !idEquals(id, authorId));
+    const visible = await this.projectAccess.usersWithAccess(
+      task.project,
+      candidates,
     );
-    return visible.filter((id): id is Types.ObjectId => id !== null);
+    return candidates.filter((id) => visible.has(String(id)));
   }
 
   private findView(commentId: Types.ObjectId): Promise<CommentRecord> {

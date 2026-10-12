@@ -17,6 +17,11 @@ import { WorkspaceAccessService } from '../workspaces/workspace-access.service';
 import { ActivityLog, ActivityLogRecord } from './schemas/activity-log.schema';
 
 const ACTOR_POPULATE = { path: 'actor', select: PUBLIC_USER_SELECT };
+/**
+ * Event fields that must not reach the feed: anyone with ACTIVITY_READ
+ * (including VIEWER) reads it, while invitee emails are for MEMBER_INVITE only.
+ */
+const PRIVATE_METADATA = ['email'] as const;
 
 /** `task.updated` → task, `workspace.member.joined` / `project.member.added` → member. */
 const entityTypeOf = (type: string): string => {
@@ -44,8 +49,10 @@ export class ActivityService {
       projectId,
       taskId,
       entityId,
-      ...metadata
+      ...details
     } = event;
+    const metadata: Record<string, unknown> = { ...details };
+    PRIVATE_METADATA.forEach((field) => delete metadata[field]);
     await this.activityModel.create({
       workspace: toObjectId(workspaceId),
       project: projectId ? toObjectId(projectId) : null,
@@ -113,6 +120,9 @@ export class ActivityService {
   ): Promise<Paginated<ActivityLogRecord>> {
     return paginate(this.activityModel, filter, pagination, {
       populate: ACTOR_POPULATE,
+      // Rows written before PRIVATE_METADATA existed are kept as-is in the
+      // database (append-only) and filtered on the way out.
+      select: PRIVATE_METADATA.map((f) => `-metadata.${f}`).join(' '),
     }) as Promise<Paginated<ActivityLogRecord>>;
   }
 }

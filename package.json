@@ -22,7 +22,10 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "migrate": "ts-node src/database/migrate.ts",
-    "migrate:prod": "node dist/database/migrate"
+    "migrate:prod": "node dist/database/migrate",
+    "db:check": "ts-node src/database/db-check.ts",
+    "db:check:prod": "node dist/database/db-check",
+    "db:reset-dev": "ts-node src/database/dev-reset.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

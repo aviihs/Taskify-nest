@@ -138,4 +138,42 @@ describe('Realtime gateway (e2e)', () => {
         : signal;
     expect(final).toMatchObject({ type: 'invitation.cancelled' });
   });
+
+  it('disconnects a member whose role is lowered or who is suspended', async () => {
+    const org = (
+      await ctx
+        .as(owner)
+        .post('/workspaces')
+        .send({ name: 'Revoke' })
+        .expect(201)
+    ).body._id;
+    const member = await ctx.signUp('revoked');
+    const inv = await ctx
+      .as(owner)
+      .post(`/workspaces/${org}/invitations`)
+      .send({ email: member.email, role: 'MANAGER' })
+      .expect(201);
+    await ctx
+      .as(member)
+      .post(`/invitations/${inv.body._id}/accept`)
+      .expect(201);
+
+    let socket = await connect(member.token);
+    let dropped = next(socket, 'disconnect');
+    await ctx
+      .as(owner)
+      .patch(`/workspaces/${org}/members/${member.id}`)
+      .send({ role: 'VIEWER' })
+      .expect(200);
+    expect(await dropped).toBeTruthy();
+
+    socket = await connect(member.token);
+    dropped = next(socket, 'disconnect');
+    await ctx
+      .as(owner)
+      .patch(`/workspaces/${org}/members/${member.id}`)
+      .send({ status: 'SUSPENDED' })
+      .expect(200);
+    expect(await dropped).toBeTruthy();
+  });
 });

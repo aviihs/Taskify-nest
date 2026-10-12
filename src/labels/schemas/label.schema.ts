@@ -3,7 +3,7 @@ import { SchemaTypes, Types } from 'mongoose';
 import { Persisted } from '../../common/types/persisted';
 
 /** Labels are shared by every project in a workspace and attached to tasks by id. */
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'labels' })
 export class Label {
   @Prop({
     type: SchemaTypes.ObjectId,

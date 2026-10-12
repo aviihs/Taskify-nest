@@ -1,3 +1,5 @@
+import { ServerUrl } from '../common/utils/network';
+
 /**
  * Landing page served at `GET /`. Styled after Taskify-Web: same brand
  * palette (light + dark), Inter, gradient hero with a faded grid.
@@ -8,6 +10,8 @@ export interface LandingPageInput {
   version: string;
   environment: string;
   uptimeSeconds: number;
+  /** Where clients can reach this server (localhost, plus LAN addresses in development). */
+  urls?: ServerUrl[];
 }
 
 const icon = (paths: string) =>
@@ -114,7 +118,20 @@ export function renderLandingPage({
   version,
   environment,
   uptimeSeconds,
+  urls = [],
 }: LandingPageInput): string {
+  const addresses = urls
+    .map(({ label, url }) => {
+      const safe = escapeHtml(url);
+      return `
+          <li>
+            <span class="address-label">${escapeHtml(label)}</span>
+            <a href="${safe}">${safe}</a>
+            <button type="button" class="copy" data-copy="${safe}">Copy</button>
+          </li>`;
+    })
+    .join('');
+
   const features = FEATURES.map(
     ([iconName, title, text]) => `
         <article class="card feature">
@@ -256,6 +273,13 @@ export function renderLandingPage({
   .btn-ghost:hover { background: rgb(255 255 255 / 0.2); }
   .btn-ghost svg { transition: translate 0.3s var(--ease); }
   .btn-ghost:hover svg { translate: 3px 0; }
+  .addresses { list-style: none; margin: 24px 0 0; padding: 0; display: grid; gap: 8px; max-width: 100%; }
+  .addresses li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+  .address-label { min-width: 64px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: rgb(255 255 255 / 0.65); }
+  .addresses a { font-family: var(--mono); color: #fff; text-decoration: none; overflow-wrap: anywhere; }
+  .addresses a:hover { text-decoration: underline; }
+  .copy { font: inherit; font-size: 12px; padding: 2px 10px; border: 0; border-radius: 999px; cursor: pointer; color: #fff; background: rgb(255 255 255 / 0.12); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.25); }
+  .copy:hover { background: rgb(255 255 255 / 0.22); }
 
   /* Live status window */
   .window {
@@ -409,6 +433,12 @@ export function renderLandingPage({
           <a class="btn btn-primary" href="/api">${ICONS.book}Open API docs</a>
           <a class="btn btn-ghost" href="/health">Health check${ICONS.arrow}</a>
         </div>
+        ${
+          addresses
+            ? `<ul class="addresses" aria-label="Server addresses">${addresses}
+        </ul>`
+            : ''
+        }
       </div>
 
       <div class="preview">
@@ -477,6 +507,18 @@ export function renderLandingPage({
 </main>
 
 <script>
+  document.querySelectorAll('.copy').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copy);
+        button.textContent = 'Copied';
+      } catch {
+        button.textContent = 'Copy failed';
+      }
+      setTimeout(() => (button.textContent = 'Copy'), 1500);
+    });
+  });
+
   (function () {
     var started = Date.now() - ${Math.floor(uptimeSeconds)} * 1000;
     var uptimeEl = document.getElementById('uptime');

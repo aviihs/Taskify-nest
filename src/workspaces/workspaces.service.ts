@@ -6,6 +6,7 @@ import {
   ROLE_PERMISSIONS,
   WorkspaceRole,
 } from '../common/authorization/permissions';
+import { TransactionRunner } from '../common/database/transaction-runner';
 import { isDuplicateKeyError } from '../common/utils/mongo-errors';
 import { toObjectId } from '../common/utils/query';
 import { CreateWorkspaceDto, UpdateWorkspaceDto } from './dtos/workspace.dto';
@@ -39,6 +40,7 @@ export class WorkspacesService {
     @InjectModel(WorkspaceMember.name)
     private readonly memberModel: Model<WorkspaceMember>,
     private readonly access: WorkspaceAccessService,
+    private readonly tx: TransactionRunner,
   ) {}
 
   /**
@@ -168,19 +170,17 @@ export class WorkspacesService {
     owner: Types.ObjectId,
     data: Partial<Workspace> & { type: WorkspaceType },
   ): Promise<WorkspaceRecord> {
-    const workspace = await this.workspaceModel.create({ ...data, owner });
-    try {
-      await this.memberModel.create({
-        workspace: workspace._id,
-        user: owner,
-        role: WorkspaceRole.OWNER,
-      });
-    } catch (error) {
-      // No multi-document transaction here (standalone Mongo support); compensate instead.
-      await this.workspaceModel.deleteOne({ _id: workspace._id }).exec();
-      throw error;
-    }
-    return workspace.toObject() as WorkspaceRecord;
+    return this.tx.run(async (session) => {
+      const [workspace] = await this.workspaceModel.create(
+        [{ ...data, owner }],
+        { session },
+      );
+      await this.memberModel.create(
+        [{ workspace: workspace._id, user: owner, role: WorkspaceRole.OWNER }],
+        { session },
+      );
+      return workspace.toObject() as WorkspaceRecord;
+    });
   }
 
   private async viewFromAccess({

@@ -120,19 +120,19 @@ export class User {
     example: null,
     required: false,
   })
-  readonly passwordResetToken?: string;
+  readonly passwordResetOtp?: string;
 
   @ApiProperty({
     example: null,
     required: false,
   })
-  readonly passwordResetExpires?: Date;
+  readonly passwordResetOtpExpiresAt?: Date;
 
   @ApiProperty({
-    example: false,
-    description: 'Soft delete status',
+    example: null,
+    description: 'Set when the account was closed (soft delete)',
   })
-  readonly isDeleted: boolean;
+  readonly deletedAt: Date | null;
 
   @ApiProperty({
     example: '2026-07-23T18:30:00.000Z',

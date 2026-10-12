@@ -7,7 +7,7 @@ export enum WorkspaceType {
   ORGANIZATION = 'ORGANIZATION',
 }
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'workspaces' })
 export class Workspace {
   @Prop({ required: true, trim: true, maxlength: 80 })
   name: string;

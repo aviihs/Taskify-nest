@@ -115,7 +115,7 @@ export class SearchService {
     return this.userModel
       .find({
         _id: { $in: userIds },
-        isDeleted: false,
+        deletedAt: null,
         $or: [
           { firstName: regex },
           { lastName: regex },

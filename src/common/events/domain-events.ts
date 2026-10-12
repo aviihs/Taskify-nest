@@ -37,6 +37,12 @@ export interface MemberRoleChangedEvent extends BaseEvent {
   changes: { role: FieldChange<WorkspaceRole> };
 }
 
+export interface MemberStatusChangedEvent extends BaseEvent {
+  type: 'workspace.member.status_changed';
+  userId: string;
+  changes: { status: FieldChange<string> };
+}
+
 export interface InvitationCreatedEvent extends BaseEvent {
   type: 'invitation.created';
   email: string;
@@ -148,6 +154,7 @@ export type DomainEvent =
   | MemberJoinedEvent
   | MemberRemovedEvent
   | MemberRoleChangedEvent
+  | MemberStatusChangedEvent
   | InvitationCreatedEvent
   | InvitationClosedEvent
   | ProjectCreatedEvent
@@ -180,6 +187,7 @@ export const ALL_DOMAIN_EVENTS: DomainEventType[] = [
   'workspace.member.joined',
   'workspace.member.removed',
   'workspace.member.role_changed',
+  'workspace.member.status_changed',
   'invitation.created',
   'invitation.declined',
   'invitation.cancelled',

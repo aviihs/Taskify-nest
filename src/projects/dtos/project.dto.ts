@@ -30,17 +30,17 @@ export class CreateProjectDto {
   @IsEnum(ProjectStatus)
   status?: ProjectStatus;
 
-  @ApiPropertyOptional({ example: '2026-10-01' })
+  @ApiPropertyOptional({ example: '2026-10-01', nullable: true })
   @IsOptional()
   @Type(() => Date)
   @IsDate()
-  startDate?: Date;
+  startDate?: Date | null;
 
-  @ApiPropertyOptional({ example: '2026-12-31' })
+  @ApiPropertyOptional({ example: '2026-12-31', nullable: true })
   @IsOptional()
   @Type(() => Date)
   @IsDate()
-  dueDate?: Date;
+  dueDate?: Date | null;
 }
 
 export class UpdateProjectDto extends PartialType(CreateProjectDto) {}

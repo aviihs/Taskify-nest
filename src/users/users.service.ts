@@ -23,13 +23,13 @@ export class UsersService {
   }
 
   async findByEmail(email: string) {
-    return await this.usersModel.findOne({ email, isDeleted: false });
+    return await this.usersModel.findOne({ email, deletedAt: null });
   }
 
   async findByUserName(userName: string) {
     return await this.usersModel.findOne({
       userName: userName.trim().toLowerCase(),
-      isDeleted: false,
+      deletedAt: null,
     });
   }
 
@@ -39,7 +39,7 @@ export class UsersService {
     const users = await this.usersModel
       .find({
         userName: { $in: userNames.map((n) => n.toLowerCase()) },
-        isDeleted: false,
+        deletedAt: null,
       })
       .select('_id')
       .lean();
@@ -59,7 +59,7 @@ export class UsersService {
     const prefix = new RegExp(`^${escapeRegex(query.trim())}`, 'i');
     const users = await this.usersModel
       .find({
-        isDeleted: false,
+        deletedAt: null,
         isActive: true,
         ...(excludeId && { _id: { $ne: excludeId } }),
         $or: [
@@ -84,7 +84,7 @@ export class UsersService {
   }
 
   async findById(id: string | Types.ObjectId) {
-    return await this.usersModel.findOne({ _id: id, isDeleted: false });
+    return await this.usersModel.findOne({ _id: id, deletedAt: null });
   }
 
   async setRefreshToken(userId: string | Types.ObjectId, token: string) {
@@ -106,14 +106,14 @@ export class UsersService {
   async findByRefreshToken(token: string) {
     return await this.usersModel.findOne({
       refreshTokens: token,
-      isDeleted: false,
+      deletedAt: null,
     });
   }
 
   async setPasswordResetToken(email: string, token: string, expires: Date) {
     return await this.usersModel.findOneAndUpdate(
-      { email, isDeleted: false },
-      { passwordResetToken: token, passwordResetExpires: expires },
+      { email, deletedAt: null },
+      { passwordResetOtp: token, passwordResetOtpExpiresAt: expires },
       { new: true },
     );
   }
@@ -121,9 +121,9 @@ export class UsersService {
   async findByPasswordResetOtp(email: string, otp: string) {
     return await this.usersModel.findOne({
       email,
-      passwordResetToken: otp,
-      passwordResetExpires: { $gt: new Date() },
-      isDeleted: false,
+      passwordResetOtp: otp,
+      passwordResetOtpExpiresAt: { $gt: new Date() },
+      deletedAt: null,
     });
   }
 
@@ -132,8 +132,8 @@ export class UsersService {
       userId,
       {
         password: newPassword,
-        passwordResetToken: null,
-        passwordResetExpires: null,
+        passwordResetOtp: null,
+        passwordResetOtpExpiresAt: null,
       },
       { new: true },
     );
@@ -170,7 +170,7 @@ export class UsersService {
 
     const regex = query.search && containsInsensitive(query.search);
     const filter: FilterQuery<User> = {
-      isDeleted: false,
+      deletedAt: null,
       ...(regex && { $or: [{ email: regex }, { userName: regex }] }),
       ...(query.role && { role: query.role }),
       ...(typeof query.isActive === 'boolean' && { isActive: query.isActive }),
@@ -210,7 +210,7 @@ export class UsersService {
       email,
       emailOtp: otp,
       emailOtpExpiresAt: { $gt: new Date() },
-      isDeleted: false,
+      deletedAt: null,
     });
   }
 
