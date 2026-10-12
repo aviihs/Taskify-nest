@@ -1,7 +1,6 @@
 import { existsSync } from 'fs';
 import * as mongoose from 'mongoose';
 import { join } from 'path';
-import { env } from '../common/config/env.config';
 import { runIntegrityChecks } from './integrity/integrity-checks';
 import { resetAndSeed } from './seed/dev-seed';
 
@@ -71,8 +70,9 @@ function arg(name: string): string | undefined {
 }
 
 async function main(): Promise<void> {
-  if (!env.mongoUri) throw new Error('MONGO_URI is not set');
-  const connection = (await mongoose.connect(env.mongoUri)).connection;
+  const mongoUri = process.env.MONGO_URI;
+  if (!mongoUri) throw new Error('MONGO_URI is not set');
+  const connection = (await mongoose.connect(mongoUri)).connection;
   try {
     const target = { host: connection.host, database: connection.name };
     console.log(`Target: host ${target.host}, database ${target.database}`);
