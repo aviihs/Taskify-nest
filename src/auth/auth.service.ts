@@ -5,10 +5,14 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcryptjs';
-import { randomInt, randomUUID } from 'crypto';
+import { randomBytes, randomInt, randomUUID } from 'crypto';
+import { Model } from 'mongoose';
+import { TransactionRunner } from '../common/database/transaction-runner';
 import { otpEmail } from '../common/email/email-templates';
 import { EmailService } from '../common/email/email.service';
 import { AuthUser, JwtPayload, TokenType } from '../common/types/auth-user';
@@ -26,6 +30,12 @@ import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
 import { isAvatarUrl, removeAvatarFile } from '../users/avatar-files';
 import { UsersService } from '../users/users.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import { FirebaseLoginDto } from './social/firebase-login.dto';
+import {
+  FirebaseIdentity,
+  FirebaseTokenVerifier,
+} from './social/firebase-token.verifier';
+import { UserIdentity } from './social/user-identity.schema';
 
 const BCRYPT_ROUNDS = 12;
 const ACCESS_TOKEN_TTL = '1h';
@@ -39,6 +49,16 @@ const generateOtp = (): string => randomInt(100000, 1000000).toString();
 const minutesFromNow = (minutes: number): Date =>
   new Date(Date.now() + minutes * 60 * 1000);
 const normalizeEmail = (email: string): string => email.trim().toLowerCase();
+
+/** Social sign-in found a password account with the same email; never auto-linked. */
+const accountExists = () =>
+  new ConflictException({
+    code: 'ACCOUNT_EXISTS',
+    message:
+      'An account with this email already exists. Sign in with your email and password.',
+  });
+
+const MAX_SOCIAL_SIGNUP_ATTEMPTS = 3;
 
 /** Deactivated accounts (platform admin action) cannot start or extend a session. */
 function assertActive(user: { isActive: boolean }): void {
@@ -54,6 +74,10 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly emailService: EmailService,
     private readonly workspacesService: WorkspacesService,
+    private readonly firebaseVerifier: FirebaseTokenVerifier,
+    private readonly tx: TransactionRunner,
+    @InjectModel(UserIdentity.name)
+    private readonly identityModel: Model<UserIdentity>,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -132,6 +156,26 @@ export class AuthService {
     if (!(await bcrypt.compare(dto.password, user.password))) {
       throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
     }
+    assertActive(user);
+
+    return {
+      success: true,
+      message: 'Login successful',
+      ...(await this.issueTokens(user)),
+      timestamp: new Date().toISOString(),
+      user: this.toUserResponse(user),
+    };
+  }
+
+  /**
+   * Social sign-in (Google/Facebook/GitHub through Firebase). Sign-up and
+   * login share this path: the verified Firebase UID resolves to a linked
+   * Taskify user, or a new account is created. Issues the usual Taskify
+   * tokens; the Firebase token is never used as a session.
+   */
+  async firebaseLogin(dto: FirebaseLoginDto) {
+    const identity = await this.firebaseVerifier.verify(dto.idToken);
+    const user = await this.resolveSocialUser(identity);
     assertActive(user);
 
     return {
@@ -325,6 +369,120 @@ export class AuthService {
     };
   }
 
+  private async resolveSocialUser(
+    identity: FirebaseIdentity,
+  ): Promise<UserDocument> {
+    const linked = await this.findLinkedUser(identity.uid);
+    if (linked) return linked;
+
+    const email = identity.email;
+    if (!email) {
+      throw new BadRequestException({
+        code: 'EMAIL_REQUIRED',
+        message: 'Your sign-in provider did not share an email address.',
+      });
+    }
+    if (!identity.emailVerified) {
+      throw new ForbiddenException({
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'Verify your email with the sign-in provider, then try again.',
+      });
+    }
+    if (await this.usersService.findByEmail(email)) {
+      return this.linkedOrAccountExists(identity.uid);
+    }
+
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.createSocialUser(identity, email);
+      } catch (error) {
+        if (!isDuplicateKeyError(error)) throw error;
+        const field = Object.keys(error.keyPattern ?? {})[0];
+        if (field === 'firebaseUid' || field === 'email') {
+          return this.linkedOrAccountExists(identity.uid);
+        }
+        if (field !== 'userName' || attempt >= MAX_SOCIAL_SIGNUP_ATTEMPTS) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  /**
+   * The email is taken. If a concurrent sign-in of this same Firebase
+   * account just created it, use that; otherwise it's someone else's account.
+   */
+  private async linkedOrAccountExists(uid: string): Promise<UserDocument> {
+    const linked = await this.findLinkedUser(uid);
+    if (linked) return linked;
+    throw accountExists();
+  }
+
+  private async findLinkedUser(uid: string): Promise<UserDocument | null> {
+    const link = await this.identityModel
+      .findOne({ firebaseUid: uid })
+      .lean()
+      .exec();
+    if (!link) return null;
+    const user = await this.usersService.findById(link.user);
+    if (!user) {
+      throw new UnauthorizedException('This account is no longer available.');
+    }
+    return user;
+  }
+
+  /** User, identity link and personal workspace are created all-or-nothing. */
+  private async createSocialUser(
+    identity: FirebaseIdentity,
+    email: string,
+  ): Promise<UserDocument> {
+    const { firstName, lastName } = splitName(identity.name, email);
+    const userName = await this.availableUserName(email);
+    // Social accounts have no usable password until the user sets one
+    // through "forgot password".
+    const password = await bcrypt.hash(
+      randomBytes(32).toString('hex'),
+      BCRYPT_ROUNDS,
+    );
+
+    return this.tx.run(async (session) => {
+      const user = await this.usersService.addUser(
+        {
+          firstName,
+          lastName,
+          email,
+          userName,
+          password,
+          role: Roles.USER,
+          isActive: true,
+          // The provider verified it (checked by the caller).
+          isEmailVerified: true,
+        },
+        session,
+      );
+      await this.identityModel.create(
+        [
+          {
+            user: user._id,
+            firebaseUid: identity.uid,
+            provider: identity.provider,
+            email,
+          },
+        ],
+        { session },
+      );
+      await this.workspacesService.ensurePersonalWorkspace(user._id, session);
+      return user;
+    });
+  }
+
+  /** Email-based username; a random suffix when taken (races retry on conflict). */
+  private async availableUserName(email: string): Promise<string> {
+    const base = usernameBase(email);
+    if (!(await this.usersService.findByUserName(base))) return base;
+    return `${base}_${randomBytes(3).toString('hex')}`;
+  }
+
   private async findCurrentUser(authUser: AuthUser): Promise<UserDocument> {
     const user = await this.usersService.findById(authUser.id);
     if (!user) {
@@ -403,4 +561,29 @@ export class AuthService {
     });
     await this.emailService.sendMail(user.email, subject, text, html);
   }
+}
+
+const NAME_MAX = 50;
+
+function splitName(
+  name: string | null,
+  email: string,
+): { firstName: string; lastName: string } {
+  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  const firstName = parts[0] ?? email.split('@')[0];
+  // lastName is required by the schema; users can edit it in their profile.
+  const lastName = parts.slice(1).join(' ') || '-';
+  return {
+    firstName: firstName.slice(0, NAME_MAX),
+    lastName: lastName.slice(0, NAME_MAX),
+  };
+}
+
+function usernameBase(email: string): string {
+  const cleaned = email
+    .split('@')[0]
+    .toLowerCase()
+    .replace(/[^a-z0-9_.]/g, '_')
+    .slice(0, 20);
+  return cleaned.length >= 3 ? cleaned : `user_${cleaned}`;
 }

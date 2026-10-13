@@ -1,5 +1,9 @@
 import { Schema } from 'mongoose';
 import {
+  UserIdentity,
+  UserIdentitySchema,
+} from '../auth/social/user-identity.schema';
+import {
   ActivityLog,
   ActivityLogSchema,
 } from '../activity/schemas/activity-log.schema';
@@ -57,6 +61,7 @@ export interface ModelDefinition {
  */
 export const MODELS: ModelDefinition[] = [
   { name: UserSchemaName, schema: UserSchema },
+  { name: UserIdentity.name, schema: UserIdentitySchema },
   { name: Workspace.name, schema: WorkspaceSchema },
   { name: WorkspaceMember.name, schema: WorkspaceMemberSchema },
   { name: WorkspaceInvitation.name, schema: WorkspaceInvitationSchema },

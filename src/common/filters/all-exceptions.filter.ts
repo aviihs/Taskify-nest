@@ -14,6 +14,8 @@ export interface ErrorResponseBody {
   statusCode: number;
   error: string;
   message: string | string[];
+  /** Machine-readable reason, when the thrown exception provides one. */
+  code?: string;
   path: string;
   timestamp: string;
 }
@@ -32,7 +34,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = ctx.getRequest();
     const response = ctx.getResponse();
 
-    const { statusCode, message } = this.resolve(exception);
+    const { statusCode, message, code } = this.resolve(exception);
 
     if (statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
@@ -46,6 +48,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       statusCode,
       error: HttpStatus[statusCode]?.replace(/_/g, ' ') ?? 'Error',
       message,
+      ...(code ? { code } : {}),
       path: request.url,
       timestamp: new Date().toISOString(),
     };
@@ -55,6 +58,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private resolve(exception: unknown): {
     statusCode: number;
     message: string | string[];
+    code?: string;
   } {
     if (exception instanceof HttpException) {
       const res = exception.getResponse();
@@ -63,7 +67,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
           ? res
           : (res as { message?: string | string[] }).message ??
             exception.message;
-      return { statusCode: exception.getStatus(), message };
+      const code =
+        typeof res === 'object' &&
+        typeof (res as { code?: unknown }).code === 'string'
+          ? (res as { code: string }).code
+          : undefined;
+      return { statusCode: exception.getStatus(), message, code };
     }
     if (isDuplicateKeyError(exception)) {
       return {

@@ -50,7 +50,10 @@ export type AuthedClient = Record<Method, (url: string) => request.Test>;
 
 export interface TestAppOptions {
   /** Provider overrides, e.g. replacing an external API adapter with a fake. */
-  overrides?: Array<[unknown, unknown]>;
+  overrides?: Array<
+    | [unknown, unknown]
+    | (() => Promise<[unknown, unknown]> | [unknown, unknown])
+  >;
 }
 
 /**
@@ -73,7 +76,9 @@ export async function createTestApp({
   const builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(EmailService)
     .useValue(emails);
-  for (const [token, value] of overrides) {
+  for (const override of overrides) {
+    const [token, value] =
+      typeof override === 'function' ? await override() : override;
     builder.overrideProvider(token).useValue(value);
   }
   const moduleRef = await builder.compile();

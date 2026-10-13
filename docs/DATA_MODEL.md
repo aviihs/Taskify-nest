@@ -10,6 +10,7 @@ Database: MongoDB **replica set** (Atlas in hosted environments, `mongodb-memory
 
 ```mermaid
 erDiagram
+    users ||--o{ user_identities : "signs in with"
     users ||--o{ workspace_members : "has"
     workspaces ||--o{ workspace_members : "has"
     users ||--o| workspaces : "owns personal"
@@ -87,6 +88,17 @@ Legend: **R** required, **I** immutable, **S** secret (never serialized), **U** 
 | deletedAt | Date \| null | Soft delete (account closed) |
 
 Not stored here: workspaces, roles in workspaces, projects, tasks, notifications. All of those reference the user.
+
+### `user_identities`: social sign-in links
+
+| Field | Type | Notes |
+|---|---|---|
+| user | → users R | |
+| firebaseUid | string R U | Firebase Authentication UID. The only key a social sign-in resolves by. |
+| provider | `google.com` \| `facebook.com` \| `github.com` R | Provider used when the link was created |
+| email | string \| null | Provider email at link time; informational, never used for matching |
+
+Created together with the user and their personal workspace in one transaction on first social sign-in. A social sign-in whose email belongs to an existing account without this link is refused (`409 ACCOUNT_EXISTS`); accounts are never linked by matching email. Social-only users get an unusable random password hash until they set one through "forgot password".
 
 ### `workspaces`: tenant
 
@@ -295,6 +307,8 @@ Each index serves a named query. Uniqueness indexes are business rules: don't re
 |---|---|---|
 | users | `{email}` U | Login, registration, invitation claim |
 | users | `{userName}` U | Mentions, invitee search, registration |
+| user_identities | `{firebaseUid}` U | Social sign-in; one Firebase account can never create two users |
+| user_identities | `{user}` | Identities of a user |
 | workspaces | `{owner, type}` U, partial `type: PERSONAL` | One personal workspace per user |
 | workspace_members | `{workspace, user}` U | Every access check; one membership per user per workspace |
 | workspace_members | `{user, status}` | "My workspaces", cross-workspace scoping (search, my tasks) |
