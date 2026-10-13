@@ -76,8 +76,9 @@ export const UserSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Stored as a string; legacy numeric values are cast on read.
     phone: {
-      type: Number,
+      type: String,
       default: null,
     },
 
