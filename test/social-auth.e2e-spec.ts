@@ -2,13 +2,15 @@ import { UnauthorizedException } from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
 import { randomUUID } from 'crypto';
 import { Model } from 'mongoose';
-import { AuthService } from '../src/auth/auth.service';
 import {
   FirebaseIdentity,
   FirebaseTokenVerifier,
 } from '../src/auth/social/firebase-token.verifier';
-import { WorkspacesService } from '../src/workspaces/workspaces.service';
 import { createTestApp, TestContext } from './utils/test-app';
+
+type AuthService = import('../src/auth/auth.service').AuthService;
+type WorkspacesService =
+  import('../src/workspaces/workspaces.service').WorkspacesService;
 
 /** Stands in for Firebase: an ID token is just a key into this map. */
 class FakeFirebaseVerifier {
@@ -42,6 +44,7 @@ describe('Social auth via Firebase (e2e)', () => {
   let ctx: TestContext;
   let firebase: FakeFirebaseVerifier;
   let auth: AuthService;
+  let workspacesServiceToken: new (...args: never[]) => WorkspacesService;
   let users: Model<{ email: string; isActive: boolean }>;
   let identities: Model<{ firebaseUid: string; user: unknown }>;
   let workspaces: Model<{ owner: unknown; type: string }>;
@@ -51,6 +54,13 @@ describe('Social auth via Firebase (e2e)', () => {
     ctx = await createTestApp({
       overrides: [[FirebaseTokenVerifier, firebase]],
     });
+    const [{ AuthService }, { WorkspacesService }] = await Promise.all([
+      import('../src/auth/auth.service'),
+      import('../src/workspaces/workspaces.service'),
+    ]);
+    workspacesServiceToken = WorkspacesService as new (
+      ...args: never[]
+    ) => WorkspacesService;
     auth = ctx.app.get(AuthService);
     users = ctx.app.get(getModelToken('User'));
     identities = ctx.app.get(getModelToken('UserIdentity'));
@@ -200,7 +210,7 @@ describe('Social auth via Firebase (e2e)', () => {
   });
 
   it('leaves no partial records when account creation fails', async () => {
-    const workspacesService = ctx.app.get(WorkspacesService);
+    const workspacesService = ctx.app.get(workspacesServiceToken);
     const spy = jest
       .spyOn(workspacesService, 'ensurePersonalWorkspace')
       .mockRejectedValueOnce(new Error('workspace insert failed'));
