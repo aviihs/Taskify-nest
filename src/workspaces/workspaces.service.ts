@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
 import {
   Permission,
   ROLE_PERMISSIONS,
@@ -49,19 +49,22 @@ export class WorkspacesService {
    */
   async ensurePersonalWorkspace(
     userId: string | Types.ObjectId,
+    /** Joins the caller's transaction (e.g. account creation) instead of opening one. */
+    session?: ClientSession,
   ): Promise<WorkspaceRecord> {
     const owner = toObjectId(userId);
     const existing = await this.workspaceModel
       .findOne({ owner, type: WorkspaceType.PERSONAL })
+      .session(session ?? null)
       .lean<WorkspaceRecord>()
       .exec();
     if (existing) return existing;
 
+    const data = { name: 'Personal', type: WorkspaceType.PERSONAL };
+    // Inside a caller's transaction a duplicate must abort the whole unit.
+    if (session) return this.insertWithOwner(owner, data, session);
     try {
-      return await this.createWithOwner(owner, {
-        name: 'Personal',
-        type: WorkspaceType.PERSONAL,
-      });
+      return await this.createWithOwner(owner, data);
     } catch (error) {
       if (!isDuplicateKeyError(error)) throw error;
       return this.workspaceModel
@@ -170,17 +173,22 @@ export class WorkspacesService {
     owner: Types.ObjectId,
     data: Partial<Workspace> & { type: WorkspaceType },
   ): Promise<WorkspaceRecord> {
-    return this.tx.run(async (session) => {
-      const [workspace] = await this.workspaceModel.create(
-        [{ ...data, owner }],
-        { session },
-      );
-      await this.memberModel.create(
-        [{ workspace: workspace._id, user: owner, role: WorkspaceRole.OWNER }],
-        { session },
-      );
-      return workspace.toObject() as WorkspaceRecord;
+    return this.tx.run((session) => this.insertWithOwner(owner, data, session));
+  }
+
+  private async insertWithOwner(
+    owner: Types.ObjectId,
+    data: Partial<Workspace> & { type: WorkspaceType },
+    session: ClientSession,
+  ): Promise<WorkspaceRecord> {
+    const [workspace] = await this.workspaceModel.create([{ ...data, owner }], {
+      session,
     });
+    await this.memberModel.create(
+      [{ workspace: workspace._id, user: owner, role: WorkspaceRole.OWNER }],
+      { session },
+    );
+    return workspace.toObject() as WorkspaceRecord;
   }
 
   private async viewFromAccess({

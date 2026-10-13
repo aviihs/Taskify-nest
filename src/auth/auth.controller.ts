@@ -9,6 +9,7 @@ import {
   ApiUnauthorizedResponse,
   ApiOkResponse,
   ApiBadRequestResponse,
+  ApiConflictResponse,
 } from '@nestjs/swagger';
 
 import { Throttle } from '@nestjs/throttler';
@@ -25,6 +26,7 @@ import { ResetPasswordDto } from '../users/dtos/reset-password.dto';
 import { UpdateProfileDto } from '../users/dtos/update-profile.dto';
 import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
 import { AuthService } from './auth.service';
+import { FirebaseLoginDto } from './social/firebase-login.dto';
 
 /** Brute-force protection for credential/OTP endpoints: 10 requests per minute per IP. */
 // const CredentialThrottle = () => Throttle(10, 60);
@@ -125,6 +127,27 @@ export class AuthController {
   })
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Public()
+  @CredentialThrottle()
+  @Post('firebase')
+  @ApiOperation({
+    summary:
+      'Sign in or sign up with Google/Facebook/GitHub (Firebase ID token)',
+  })
+  @ApiBody({ type: FirebaseLoginDto })
+  @ApiCreatedResponse({ description: 'Same response as POST /auth/login' })
+  @ApiUnauthorizedResponse({ description: 'Invalid or expired Firebase token' })
+  @ApiForbiddenResponse({
+    description: 'Account deactivated, or provider email not verified',
+  })
+  @ApiConflictResponse({
+    description:
+      'code ACCOUNT_EXISTS: an email/password account already uses this email',
+  })
+  firebaseLogin(@Body() dto: FirebaseLoginDto) {
+    return this.authService.firebaseLogin(dto);
   }
 
   @Public()

@@ -1,6 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { FilterQuery, Model, Types } from 'mongoose';
+import { ClientSession, FilterQuery, Model, Types } from 'mongoose';
 import { User } from './dtos/user.dto';
 import { UserSchemaName } from './schemas/user.schema';
 import { isDuplicateKeyError } from '../common/utils/mongo-errors';
@@ -17,9 +17,9 @@ export class UsersService {
     private readonly usersModel: Model<User>,
   ) {}
 
-  async addUser(user: Partial<User>) {
+  async addUser(user: Partial<User>, session?: ClientSession) {
     const newUser = new this.usersModel(user);
-    return await newUser.save();
+    return await newUser.save({ session });
   }
 
   async findByEmail(email: string) {

@@ -523,6 +523,7 @@ const CHECKS: Check[] = [
   }),
 
   // notifications
+  missingRef('user_identities', 'user', 'users'),
   missingRef('notifications', 'recipient', 'users'),
   missingRef('notifications', 'workspace', 'workspaces'),
   missingRef('notifications', 'actor', 'users', { severity: 'warning' }),
