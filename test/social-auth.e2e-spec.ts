@@ -2,15 +2,19 @@ import { UnauthorizedException } from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
 import { randomUUID } from 'crypto';
 import { Model } from 'mongoose';
-import {
-  FirebaseIdentity,
-  FirebaseTokenVerifier,
-} from '../src/auth/social/firebase-token.verifier';
 import { createTestApp, TestContext } from './utils/test-app';
 
 type AuthService = import('../src/auth/auth.service').AuthService;
 type WorkspacesService =
   import('../src/workspaces/workspaces.service').WorkspacesService;
+type FirebaseIdentity = {
+  uid: string;
+  provider: 'google.com' | 'facebook.com' | 'github.com';
+  email: string | null;
+  emailVerified: boolean;
+  name: string | null;
+  picture: string | null;
+};
 
 /** Stands in for Firebase: an ID token is just a key into this map. */
 class FakeFirebaseVerifier {
@@ -52,7 +56,14 @@ describe('Social auth via Firebase (e2e)', () => {
   beforeAll(async () => {
     firebase = new FakeFirebaseVerifier();
     ctx = await createTestApp({
-      overrides: [[FirebaseTokenVerifier, firebase]],
+      overrides: [
+        async () => {
+          const { FirebaseTokenVerifier } = await import(
+            '../src/auth/social/firebase-token.verifier'
+          );
+          return [FirebaseTokenVerifier, firebase];
+        },
+      ],
     });
     const [{ AuthService }, { WorkspacesService }] = await Promise.all([
       import('../src/auth/auth.service'),
