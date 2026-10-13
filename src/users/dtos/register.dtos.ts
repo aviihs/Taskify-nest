@@ -5,7 +5,6 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
-  IsMobilePhone,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -19,6 +18,11 @@ import {
   USERNAME_PATTERN,
   USERNAME_PATTERN_MESSAGE,
 } from '../username';
+import {
+  NEPALI_PHONE_MESSAGE,
+  NEPALI_PHONE_PATTERN,
+  normalizePhone,
+} from '../phone';
 import { Gender } from './user.dto';
 
 export class RegisterDto {
@@ -127,9 +131,11 @@ export class RegisterDto {
   bio?: string;
 
   @ApiPropertyOptional({
-    example: 9812345678,
+    example: '9812345678',
+    description: 'Nepali mobile number (10 digits, starts with 97/98)',
   })
+  @Transform(({ value }) => normalizePhone(value))
   @IsOptional()
-  @IsMobilePhone()
-  phone?: number;
+  @Matches(NEPALI_PHONE_PATTERN, { message: NEPALI_PHONE_MESSAGE })
+  phone?: string;
 }

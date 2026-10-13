@@ -1,7 +1,7 @@
 import { getModelToken } from '@nestjs/mongoose';
 import { existsSync } from 'fs';
 import { mkdir, writeFile } from 'fs/promises';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { join } from 'path';
 import { createTestApp, TestContext, TestUser } from './utils/test-app';
 
@@ -13,13 +13,68 @@ const PNG = Buffer.from(
 
 describe('Account security (e2e)', () => {
   let ctx: TestContext;
-  let users: Model<{ avatar?: string; isActive?: boolean }>;
+  let users: Model<{
+    avatar?: string;
+    isActive?: boolean;
+    phone?: unknown;
+  }>;
 
   beforeAll(async () => {
     ctx = await createTestApp();
     users = ctx.app.get(getModelToken('User'));
   });
   afterAll(() => ctx.close());
+
+  describe('phone', () => {
+    let user: TestUser;
+
+    beforeEach(async () => {
+      user = await ctx.signUp('phone');
+    });
+
+    it.each(['981234567', '98123456789', '9612345678', '0812345678', 'abc'])(
+      'rejects %s',
+      async (phone) => {
+        await ctx.as(user).put('/auth/profile').send({ phone }).expect(400);
+      },
+    );
+
+    it('normalises a Nepali number and lets it be cleared', async () => {
+      const res = await ctx
+        .as(user)
+        .put('/auth/profile')
+        .send({ phone: '+977 981-234-5678' })
+        .expect(200);
+      expect(res.body.data.phone).toBe('9812345678');
+
+      const kept = await ctx
+        .as(user)
+        .put('/auth/profile')
+        .send({ phone: '9771234567' })
+        .expect(200);
+      expect(kept.body.data.phone).toBe('9771234567');
+
+      const cleared = await ctx
+        .as(user)
+        .put('/auth/profile')
+        .send({ phone: '' })
+        .expect(200);
+      expect(cleared.body.data.phone).toBeNull();
+    });
+
+    it('serves a legacy numeric phone as a string', async () => {
+      await users.collection.updateOne(
+        { _id: new Types.ObjectId(user.id) },
+        { $set: { phone: 9812345678 } },
+      );
+      const res = await ctx
+        .as(user)
+        .put('/auth/profile')
+        .send({ bio: 'hi' })
+        .expect(200);
+      expect(res.body.data.phone).toBe('9812345678');
+    });
+  });
 
   describe('avatar', () => {
     let user: TestUser;

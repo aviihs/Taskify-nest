@@ -1,12 +1,18 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
-  IsNumber,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
 } from 'class-validator';
+import {
+  NEPALI_PHONE_MESSAGE,
+  NEPALI_PHONE_PATTERN,
+  normalizePhone,
+} from '../phone';
 import { Gender } from './user.dto';
 
 export class UpdateProfileDto {
@@ -44,9 +50,13 @@ export class UpdateProfileDto {
   bio?: string;
 
   @ApiPropertyOptional({
-    example: 9812345678,
+    example: '9812345678',
+    nullable: true,
+    description:
+      'Nepali mobile number (10 digits, starts with 97/98). Send "" or null to clear.',
   })
+  @Transform(({ value }) => normalizePhone(value))
   @IsOptional()
-  @IsNumber()
-  phone?: number;
+  @Matches(NEPALI_PHONE_PATTERN, { message: NEPALI_PHONE_MESSAGE })
+  phone?: string | null;
 }

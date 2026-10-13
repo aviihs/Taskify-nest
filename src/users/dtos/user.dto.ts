@@ -95,7 +95,7 @@ export class User {
     description: 'Phone number',
     required: false,
   })
-  readonly phone?: number;
+  readonly phone?: string;
 
   @ApiProperty({
     example: true,
