@@ -15,6 +15,11 @@ export const env = {
   /** Public URL of the web app, used to build links in emails. */
   appUrl: process.env.APP_URL ?? 'https://taskify.app',
   uploadDir: process.env.UPLOAD_DIR ?? './uploads',
+  /**
+   * Firebase service account for push notifications: a path to the JSON key
+   * file, or the JSON itself. Unset = push disabled.
+   */
+  firebaseServiceAccount: process.env.FIREBASE_SERVICE_ACCOUNT ?? '',
 };
 
 const REQUIRED_ENV = ['MONGO_URI', 'JWT_SECRET'] as const;

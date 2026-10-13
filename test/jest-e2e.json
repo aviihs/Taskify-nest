@@ -8,5 +8,8 @@
   },
   "globalSetup": "<rootDir>/setup/global-setup.ts",
   "globalTeardown": "<rootDir>/setup/global-teardown.ts",
-  "testTimeout": 60000
+  "testTimeout": 60000,
+  "moduleNameMapper": {
+    "^firebase-admin/(.*)$": "<rootDir>/../node_modules/firebase-admin/lib/$1"
+  }
 }

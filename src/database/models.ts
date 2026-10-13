@@ -17,6 +17,10 @@ import {
 } from '../invitations/schemas/invitation.schema';
 import { Label, LabelSchema } from '../labels/schemas/label.schema';
 import {
+  DeviceToken,
+  DeviceTokenSchema,
+} from '../notifications/schemas/device-token.schema';
+import {
   Notification,
   NotificationSchema,
 } from '../notifications/schemas/user-notification.schema';
@@ -63,6 +67,7 @@ export const MODELS: ModelDefinition[] = [
   { name: TaskDependency.name, schema: TaskDependencySchema },
   { name: Comment.name, schema: CommentSchema },
   { name: Attachment.name, schema: AttachmentSchema },
+  { name: DeviceToken.name, schema: DeviceTokenSchema },
   { name: Notification.name, schema: NotificationSchema },
   { name: ActivityLog.name, schema: ActivityLogSchema },
 ];

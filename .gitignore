@@ -40,3 +40,6 @@ HEALTH_MODULE_README.md
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+
+# Firebase service account key (push notifications)
+firebase-service-account*.json
