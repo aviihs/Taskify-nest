@@ -6,6 +6,9 @@ import { DueDateReminderScheduler } from './due-date-reminder.scheduler';
 import { NotificationRulesListener } from './notification-rules.listener';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
+import { PushNotificationListener } from './push/push-notification.listener';
+import { PushService } from './push/push.service';
+import { DeviceToken, DeviceTokenSchema } from './schemas/device-token.schema';
 import {
   Notification,
   NotificationSchema,
@@ -16,6 +19,7 @@ import {
     MongooseModule.forFeature([
       { name: Notification.name, schema: NotificationSchema },
       { name: Task.name, schema: TaskSchema },
+      { name: DeviceToken.name, schema: DeviceTokenSchema },
     ]),
     ProjectsModule,
   ],
@@ -24,6 +28,8 @@ import {
     NotificationsService,
     NotificationRulesListener,
     DueDateReminderScheduler,
+    PushService,
+    PushNotificationListener,
   ],
   exports: [NotificationsService],
 })

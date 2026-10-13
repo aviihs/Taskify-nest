@@ -180,6 +180,12 @@ export const NOTIFICATION_CREATED = 'notification.created';
 export interface NotificationCreatedEvent {
   recipientId: string;
   notificationId: string;
+  /** Carried so delivery channels (push) don't re-read the notification. */
+  type: string;
+  message: string;
+  entityType: string;
+  entityId: string;
+  link: string | null;
 }
 
 /** Every domain event name; for subscribers that react to all of them (activity log, realtime). */

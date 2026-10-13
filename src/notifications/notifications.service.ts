@@ -36,7 +36,7 @@ export interface NotifyInput {
 /**
  * Single entry point for creating notifications. Persists in-app
  * notifications and emits NOTIFICATION_CREATED so delivery channels
- * (websocket today; push/email later) can fan out without coupling.
+ * (websocket, push) can fan out without coupling.
  */
 @Injectable()
 export class NotificationsService {
@@ -77,6 +77,11 @@ export class NotificationsService {
       const event: NotificationCreatedEvent = {
         recipientId: String(notification.recipient),
         notificationId: String(notification._id),
+        type: notification.type,
+        message: notification.message,
+        entityType: notification.entityType,
+        entityId: String(notification.entityId),
+        link: notification.link,
       };
       this.emitter.emit(NOTIFICATION_CREATED, event);
     }
