@@ -51,7 +51,8 @@ export type AuthedClient = Record<Method, (url: string) => request.Test>;
 export interface TestAppOptions {
   /** Provider overrides, e.g. replacing an external API adapter with a fake. */
   overrides?: Array<
-    [unknown, unknown] | (() => Promise<[unknown, unknown]> | [unknown, unknown])
+    | [unknown, unknown]
+    | (() => Promise<[unknown, unknown]> | [unknown, unknown])
   >;
 }
 
