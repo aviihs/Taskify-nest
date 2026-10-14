@@ -14,7 +14,7 @@ How the app works, which API each screen calls, and what comes back. Written for
 2. [Demo logins](#2-demo-logins-development-only)
 3. [How the app fits together](#3-how-the-app-fits-together)
 4. [Screens](#4-screens)
-   - [Auth](#41-auth-register--verify--login) · [Workspaces](#42-workspace-switcher--home) · [Dashboard](#43-dashboard) · [Projects](#44-projects) · [Task board](#45-task-board--task-list) · [Task detail](#46-task-detail) · [My Tasks](#47-my-tasks) · [Labels](#48-labels) · [Members & invitations](#49-members--invitations) · [My invitations](#410-my-invitations-invitee-side) · [Notifications](#411-notifications) · [Search](#412-search) · [Activity](#413-activity-feed) · [Profile](#414-profile--account) · [AI task breakdown](#415-ai-task-breakdown) · [Platform admin](#416-platform-admin)
+   - [Auth](#41-auth-register--verify--login) · [Workspaces](#42-workspace-switcher--home) · [Dashboard](#43-dashboard) · [Projects](#44-projects) · [Task board](#45-task-board--task-list) · [Task detail](#46-task-detail) · [My Tasks](#47-my-tasks) · [Labels](#48-labels) · [Members & invitations](#49-members--invitations) · [My invitations](#410-my-invitations-invitee-side) · [Notifications](#411-notifications) · [Search](#412-search) · [Activity](#413-activity-feed) · [Profile](#414-profile--account) · [AI task breakdown](#415-ai-task-breakdown) · [Platform admin](#416-platform-admin) · [Chat](#417-chat-direct-messages)
 5. [Realtime updates](#5-realtime-updates)
 6. [Showing and hiding buttons (permissions)](#6-showing-and-hiding-buttons-permissions)
 7. [Enums](#7-enums)
@@ -397,6 +397,41 @@ Only for accounts with platform role `ADMIN` (`user.role` in the login response)
 | Deactivate / activate | `PATCH /users/:id/deactivate` · `PATCH /users/:id/activate` |
 | Soft delete | `PATCH /users/:id/delete` |
 
+### 4.17 Chat (direct messages)
+
+Conversations are **direct messages between two members of one workspace**. Being a participant is not enough: you must also still be an active member of that workspace. Otherwise the conversation is a `404`. If the other person leaves, you keep the history, but `canSend` turns `false` and sending returns `403`.
+
+| Action | Call |
+|---|---|
+| Inbox list | `GET /chat/conversations?limit=30&before=<lastMessageAt>` → `{items, hasMore}` (only conversations with at least one message) |
+| Tab badge | `GET /chat/unread-count` → `{count}` |
+| People to message | `GET /chat/contacts?workspaceId=&q=` → `[{user, conversationId}]` (online first) |
+| Open / start a DM | `POST /chat/conversations` `{workspaceId, userId}` → conversation (idempotent: same pair, same workspace → same id) |
+| One conversation | `GET /chat/conversations/:id` |
+| History | `GET /chat/conversations/:id/messages?limit=30` (latest) · `&before=<seq>` (older) · `&after=<seq>` (catch up) → `{items (oldest first), hasMore}` |
+| Send | `POST /chat/conversations/:id/messages` `{body, clientId}` |
+| Mark read | `POST /chat/conversations/:id/read` `{seq}` → `{lastReadSeq, unreadCount}` |
+| My status | `GET /chat/presence` · `PATCH /chat/presence` `{availability: "ONLINE"\|"OFFLINE"}` → `{availability, online}` |
+
+```json
+{
+  "_id": "…", "type": "DIRECT",
+  "workspace": { "_id": "…", "name": "Acme" },
+  "peer": { "_id": "…", "firstName": "Ram", "lastName": "…", "userName": "ram", "avatar": null, "online": true },
+  "lastMessage": { "_id": "…", "senderId": "…", "preview": "Can you review…", "seq": 42, "createdAt": "…" },
+  "lastMessageAt": "…", "lastSeq": 42, "lastReadSeq": 40, "peerLastReadSeq": 42,
+  "unreadCount": 2, "canSend": true
+}
+```
+
+**Ordering and unread counts.** The server numbers every message with `seq` (1, 2, 3, …) and timestamps it with its own clock. Paging, unread counts, read receipts and reconnect catch-up all use `seq`. Unread means messages from the other person after your `lastReadSeq`, and sending a message moves your own marker forward. Mark-read never moves backwards and is capped at the last message. Show "Read" under your message when `peerLastReadSeq >= message.seq`.
+
+**No duplicates.** Generate a `clientId` (8–64 of `A-Z a-z 0-9 _ -`) per message on the device and reuse it when retrying. A retry with the same `clientId` returns the stored message instead of creating a second one. The sender is always taken from the access token; a `senderId` in the body is rejected.
+
+**Bodies** are plain text, 1–4000 characters after trimming. Control characters are stripped. Render them as text, never as markup. Sending is limited to 60 messages a minute.
+
+**Push.** If none of the recipient's devices has a live socket, the message is also sent through FCM with `data: {type: "CHAT_MESSAGE", entityType: "conversation", entityId: <conversationId>, link: "/chat/<id>"}`. Chat does not add entries to the notification inbox.
+
 ---
 
 ## 5. Realtime updates
@@ -421,6 +456,30 @@ Make sure the URL has exactly one slash before `realtime`.
 | `disconnect` | | Access changed (removed, suspended, role changed) or the token expired: reconnect with a fresh token and subscribe again |
 
 `subscribe` answers `{ok: true}` or `{ok: false, error}`. Project events go to the project room; workspace-level events (members, invitations, labels) go to the workspace room.
+
+### Chat, typing and presence
+
+Unlike the change signals above, chat events carry their data, because they go only to the people allowed to see it.
+
+| Event you receive | Payload | Sent to |
+|---|---|---|
+| `chat:message` | `{message: {_id, conversationId, senderId, body, seq, createdAt, clientId?}, sender: {_id, firstName, lastName, userName, avatar}}` | Every participant's devices. `clientId` is only on the sender's copy, so their device can replace its pending message. |
+| `chat:read` | `{conversationId, userId, lastReadSeq}` | Every participant |
+| `chat:typing` | `{conversationId, userId, typing}` | The other participants |
+| `presence` | `{userId, online}` | Rooms of every workspace the user belongs to, plus the user's own devices |
+
+| Event you send | Payload | Notes |
+|---|---|---|
+| `chat:typing` | `{conversationId, typing: true\|false}` | Ack `{ok}`. Only participants can send it; anyone else gets `{ok: false, error: "Not found"}`. A `typing: true` is forwarded at most once every 2 s per conversation. Typing is never stored. |
+
+Recommended client timing: send `typing: true` at most every 3 s while the user types. Send `false` after 4 s idle, on send, and on leaving the screen. Hide someone's indicator 6 s after their last `true`, or as soon as a message from them arrives. The server also sends `typing: false` when a message is sent or the socket disconnects.
+
+**Presence rules.**
+- A user is **online** to others when they have at least one live `/realtime` socket **and** their chosen availability is `ONLINE`. HTTP requests never count.
+- Each socket is a row in `presence_sessions`, so several devices and several API instances are counted correctly. Closing one device keeps you online while another is connected.
+- `OFFLINE` ("appear offline") hides you even while connected. You still receive messages, typing and receipts.
+- If a client crashes or loses its network, Socket.IO's ping timeout (about 45 s) disconnects it. If an **API instance** crashes, its sessions stop being refreshed (every 30 s) and a sweeper removes them after 90 s and announces the user offline.
+- When the app goes to the background, it closes its socket, so you go offline right away and new messages arrive as push notifications. On resume it reconnects, rejoins its rooms, and refetches anything it missed (`after=<lastSeq>`).
 
 Event `type` values: `task.created|updated|deleted`, `comment.created|deleted`, `attachment.uploaded|deleted`, `dependency.added|removed`, `project.created|updated|deleted`, `project.member.added|removed`, `workspace.member.joined|removed|role_changed|status_changed`, `invitation.created|declined|cancelled`, `label.deleted`.
 
@@ -498,6 +557,11 @@ Every error has the same shape:
 | GET | `/users/me` · `/users/:id` · `/users/:id/avatar` | Profile |
 | POST / DELETE | `/users/me/avatar` | Profile |
 | GET | `/users/me/tasks` | My Tasks |
+| GET / POST | `/chat/conversations` | Inbox (messages) |
+| GET | `/chat/conversations/:id` · `/chat/conversations/:id/messages` | Conversation |
+| POST | `/chat/conversations/:id/messages` · `/chat/conversations/:id/read` | Conversation |
+| GET | `/chat/unread-count` · `/chat/contacts` | Inbox (messages) |
+| GET / PATCH | `/chat/presence` | Inbox (status) |
 | GET / PUT / PATCH | `/users` · `/users/:id` · `/users/:id/activate` · `/users/:id/deactivate` · `/users/:id/delete` | Platform admin |
 | GET / POST | `/workspaces` | Workspace switcher |
 | GET / PATCH / DELETE | `/workspaces/:id` | Workspace settings |

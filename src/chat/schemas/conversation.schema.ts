@@ -1,0 +1,89 @@
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { SchemaTypes, Types } from 'mongoose';
+import { Persisted } from '../../common/types/persisted';
+
+export enum ConversationType {
+  DIRECT = 'DIRECT',
+}
+
+/** A participant and how far they have read (a message `seq`). */
+@Schema({ _id: false })
+export class ConversationMember {
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
+  user: Types.ObjectId;
+
+  @Prop({ type: Number, default: 0, min: 0 })
+  lastReadSeq: number;
+}
+const ConversationMemberSchema =
+  SchemaFactory.createForClass(ConversationMember);
+
+/** Denormalised so the inbox renders without reading messages. */
+@Schema({ _id: false })
+export class LastMessage {
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
+  id: Types.ObjectId;
+
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
+  sender: Types.ObjectId;
+
+  @Prop({ required: true })
+  preview: string;
+
+  @Prop({ type: Number, required: true })
+  seq: number;
+
+  @Prop({ type: Date, required: true })
+  createdAt: Date;
+}
+const LastMessageSchema = SchemaFactory.createForClass(LastMessage);
+
+/**
+ * A direct conversation between two members of one workspace (DMs are
+ * workspace-scoped, like the rest of Taskify). Reading or writing requires
+ * being a participant AND an active member of the workspace, so leaving a
+ * workspace ends access to its conversations.
+ */
+@Schema({ timestamps: true, collection: 'conversations' })
+export class Conversation {
+  @Prop({
+    type: SchemaTypes.ObjectId,
+    ref: 'Workspace',
+    required: true,
+    immutable: true,
+  })
+  workspace: Types.ObjectId;
+
+  @Prop({
+    type: String,
+    enum: Object.values(ConversationType),
+    default: ConversationType.DIRECT,
+    immutable: true,
+  })
+  type: ConversationType;
+
+  /** `<workspace>:<userA>:<userB>` (sorted). Unique, so a pair has one DM per workspace. */
+  @Prop({ type: String, required: true, immutable: true })
+  directKey: string;
+
+  @Prop({ type: [ConversationMemberSchema], required: true })
+  members: ConversationMember[];
+
+  /** Highest message `seq` handed out; messages are numbered 1, 2, 3, … */
+  @Prop({ type: Number, default: 0, min: 0 })
+  lastSeq: number;
+
+  @Prop({ type: LastMessageSchema, default: null })
+  lastMessage: LastMessage | null;
+
+  /** Null until the first message, which keeps empty DMs out of the inbox. */
+  @Prop({ type: Date, default: null })
+  lastMessageAt: Date | null;
+}
+
+export type ConversationRecord = Persisted<Conversation>;
+export const ConversationSchema = SchemaFactory.createForClass(Conversation);
+
+ConversationSchema.index({ directKey: 1 }, { unique: true });
+// Inbox: my conversations, most recent first.
+ConversationSchema.index({ 'members.user': 1, lastMessageAt: -1 });

@@ -9,6 +9,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AttachmentsModule } from './attachments/attachments.module';
 import { AuthModule } from './auth/auth.module';
+import { ChatModule } from './chat/chat.module';
 import { CommentsModule } from './comments/comments.module';
 import { CommonModule } from './common/common.module';
 import { DashboardModule } from './dashboard/dashboard.module';
@@ -51,6 +52,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     AttachmentsModule,
     ActivityModule,
     NotificationsModule,
+    ChatModule,
     SearchModule,
     DashboardModule,
     RealtimeModule,

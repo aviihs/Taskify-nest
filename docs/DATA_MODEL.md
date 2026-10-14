@@ -252,6 +252,34 @@ One document per domain event, written by `ActivityService` and never updated.
 | metadata | object | Event details, e.g. `changes: { status: { from, to } }`. Never contains email addresses. |
 | createdAt | Date | No `updatedAt` |
 
+### `conversations`: direct messages
+
+| Field | Type | Notes |
+|---|---|---|
+| workspace | → workspaces R | Copied scope. Reading or writing requires being an active member. |
+| type | `DIRECT` | |
+| directKey | string R, unique | `<workspace>:<userA>:<userB>` (ids sorted): one DM per pair per workspace, even under concurrent requests |
+| members | `[{user → users, lastReadSeq}]` R | Two participants and how far each has read |
+| lastSeq | number | Last message number handed out (atomic `$inc`) |
+| lastMessage | `{id, sender, preview, seq, createdAt}` \| null | For the inbox, so it can render without reading messages |
+| lastMessageAt | Date \| null | Null until the first message; empty DMs stay out of the inbox |
+
+### `chat_messages`
+
+| Field | Type | Notes |
+|---|---|---|
+| conversation | → conversations R | |
+| workspace | → workspaces R | Copied scope |
+| sender | → users R | Always the authenticated user |
+| body | string R | ≤ 4000, plain text |
+| seq | number R | Server order; unique per conversation |
+| clientId | string \| null | The device's idempotency key; unique per sender |
+| createdAt | Date | Server clock; no `updatedAt` (messages are immutable) |
+
+### `presence_sessions`: live sockets
+
+`{user → users, socketId (unique), instanceId, lastSeenAt}`. One row per connected `/realtime` socket, refreshed every 30 s by the API instance that holds it. A row older than 90 s is stale and is swept. A TTL index deletes anything older than an hour as a backstop. A user's chosen availability is `users.availability` (`ONLINE` | `OFFLINE`, default `ONLINE`).
+
 ### `_migrations`: migration ledger
 
 `{ _id: '<migration id>', appliedAt }`. Written by `runMigrations`.
@@ -336,6 +364,8 @@ Each index serves a named query. Uniqueness indexes are business rules: don't re
 Removed: `tasks {workspace, deletedAt, dueDate}`. No query filters on that combination.
 
 ---
+
+Chat: `conversations {directKey}` unique · `{'members.user', lastMessageAt: -1}` (inbox) · `chat_messages {conversation, seq: -1}` unique (paging, unread) · `{sender, clientId}` unique where `clientId` is a string (idempotent sends) · `presence_sessions {socketId}` unique · `{user, lastSeenAt: -1}` · `{lastSeenAt}` TTL 3600 s.
 
 ## 7. Known limitations
 
