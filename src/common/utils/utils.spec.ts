@@ -1,5 +1,11 @@
 import { diffChanges } from './diff';
-import { dayBounds, escapeRegex } from './query';
+import {
+  dayBounds,
+  escapeRegex,
+  localDateKey,
+  mongoTimezone,
+  weekStart,
+} from './query';
 
 describe('dayBounds', () => {
   it("computes 'today' in the client's timezone", () => {
@@ -39,5 +45,40 @@ describe('diffChanges', () => {
         labels: ['a', 'b'],
       }),
     ).toEqual({ status: { from: 'TODO', to: 'DONE' } });
+  });
+});
+
+describe('weekStart', () => {
+  it('is Monday 00:00 in the client timezone', () => {
+    // Wednesday 2026-10-14 10:00 UTC.
+    const now = new Date('2026-10-14T10:00:00Z');
+    expect(weekStart(0, now)).toEqual(new Date('2026-10-12T00:00:00Z'));
+    // Nepal (UTC+5:45): local Monday midnight is Sunday 18:15 UTC.
+    expect(weekStart(-345, now)).toEqual(new Date('2026-10-11T18:15:00Z'));
+  });
+
+  it('treats Monday itself and Sunday night correctly', () => {
+    expect(weekStart(0, new Date('2026-10-12T00:00:00Z'))).toEqual(
+      new Date('2026-10-12T00:00:00Z'),
+    );
+    expect(weekStart(0, new Date('2026-10-18T23:59:00Z'))).toEqual(
+      new Date('2026-10-12T00:00:00Z'),
+    );
+  });
+});
+
+describe('mongoTimezone', () => {
+  it('turns getTimezoneOffset minutes into an ±HH:MM offset', () => {
+    expect(mongoTimezone(-345)).toBe('+05:45');
+    expect(mongoTimezone(300)).toBe('-05:00');
+    expect(mongoTimezone(0)).toBe('+00:00');
+  });
+});
+
+describe('localDateKey', () => {
+  it('uses the client calendar day', () => {
+    const instant = new Date('2026-10-14T20:00:00Z');
+    expect(localDateKey(instant, 0)).toBe('2026-10-14');
+    expect(localDateKey(instant, -345)).toBe('2026-10-15'); // 01:45 in Nepal
   });
 });

@@ -2,10 +2,21 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Permission } from '../common/authorization/permissions';
-import { dayBounds } from '../common/utils/query';
+import {
+  DAY_MS,
+  dayBounds,
+  localDateKey,
+  mongoTimezone,
+} from '../common/utils/query';
 import { ProjectAccessService } from '../projects/project-access.service';
 import { Project, ProjectRecord } from '../projects/schemas/project.schema';
-import { Task, TaskPriority, TaskStatus } from '../tasks/schemas/task.schema';
+import {
+  Task,
+  TaskPriority,
+  TaskRecord,
+  TaskStatus,
+} from '../tasks/schemas/task.schema';
+import { TASK_POPULATE, TaskView, TasksService } from '../tasks/tasks.service';
 import { EMPTY_PROGRESS, Progress, progressBy } from '../tasks/task-stats';
 import { lookupPublicUser, PublicUser } from '../users/public-user';
 import { WorkspaceAccessService } from '../workspaces/workspace-access.service';
@@ -28,7 +39,22 @@ export interface WorkspaceDashboard {
     }
   >;
   workload: Array<{ user: PublicUser; open: number; overdue: number }>;
+  /**
+   * Top-level tasks completed on each of the last 7 local calendar days,
+   * oldest first, today last; days without completions are 0. A task counts
+   * once, on the day of its current completedAt (reopening clears it).
+   */
+  completedByDay: Array<{ date: string; count: number }>;
+  /** The most overdue open tasks (earliest due first); total in summary. */
+  overdueTasks: TaskView[];
+  /** Open tasks due today or in the next 6 days, soonest first. */
+  dueSoon: TaskView[];
+  dueSoonCount: number;
+  period: { todayStart: Date; todayEnd: Date; weekFrom: Date };
 }
+
+export const DASHBOARD_LIST_LIMIT = 5;
+const WEEK_DAYS = 7;
 
 const zeroed = <K extends string>(keys: K[]): Record<K, number> =>
   Object.fromEntries(keys.map((k) => [k, 0])) as Record<K, number>;
@@ -45,6 +71,7 @@ export class DashboardService {
     @InjectModel(Project.name) private readonly projectModel: Model<Project>,
     private readonly workspaceAccess: WorkspaceAccessService,
     private readonly projectAccess: ProjectAccessService,
+    private readonly tasks: TasksService,
   ) {}
 
   async forWorkspace(
@@ -61,8 +88,25 @@ export class DashboardService {
       workspace._id,
     ]);
     const { start, end } = dayBounds(tzOffset);
+    const weekFrom = new Date(start.getTime() - (WEEK_DAYS - 1) * DAY_MS);
+    const soonEnd = new Date(start.getTime() + WEEK_DAYS * DAY_MS);
+    const openTopLevel = {
+      project: { $in: projectIds },
+      deletedAt: null,
+      parentTask: null,
+      status: { $ne: TaskStatus.DONE },
+    };
 
-    const [taskStats, workload, projects, progress] = await Promise.all([
+    const [
+      taskStats,
+      workload,
+      projects,
+      progress,
+      completedByDay,
+      overdueTasks,
+      dueSoon,
+      dueSoonCount,
+    ] = await Promise.all([
       this.taskStats(projectIds, start, end),
       this.workload(projectIds, start),
       this.projectModel
@@ -72,11 +116,28 @@ export class DashboardService {
         .lean<ProjectRecord[]>()
         .exec(),
       progressBy(this.taskModel, 'project', projectIds),
+      this.completedByDay(projectIds, weekFrom, end, tzOffset),
+      this.taskList({ ...openTopLevel, dueDate: { $ne: null, $lt: start } }),
+      this.taskList({
+        ...openTopLevel,
+        dueDate: { $gte: start, $lt: soonEnd },
+      }),
+      this.taskModel
+        .countDocuments({
+          ...openTopLevel,
+          dueDate: { $gte: start, $lt: soonEnd },
+        })
+        .exec(),
     ]);
 
     return {
       ...taskStats,
       workload,
+      completedByDay,
+      overdueTasks,
+      dueSoon,
+      dueSoonCount,
+      period: { todayStart: start, todayEnd: end, weekFrom },
       projects: projects.map((p) => ({
         _id: p._id,
         name: p.name,
@@ -191,6 +252,59 @@ export class DashboardService {
         facets.openByPriority,
       ),
     };
+  }
+
+  private async completedByDay(
+    projectIds: Types.ObjectId[],
+    from: Date,
+    to: Date,
+    tzOffset: number,
+  ): Promise<WorkspaceDashboard['completedByDay']> {
+    const rows = await this.taskModel
+      .aggregate<{ _id: string; count: number }>([
+        {
+          $match: {
+            project: { $in: projectIds },
+            deletedAt: null,
+            parentTask: null,
+            status: TaskStatus.DONE,
+            completedAt: { $gte: from, $lt: to },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              $dateToString: {
+                format: '%Y-%m-%d',
+                date: '$completedAt',
+                timezone: mongoTimezone(tzOffset),
+              },
+            },
+            count: { $sum: 1 },
+          },
+        },
+      ])
+      .exec();
+    const byDay = new Map(rows.map((r) => [r._id, r.count]));
+    return Array.from({ length: WEEK_DAYS }, (_, i) => {
+      const date = localDateKey(
+        new Date(from.getTime() + i * DAY_MS),
+        tzOffset,
+      );
+      return { date, count: byDay.get(date) ?? 0 };
+    });
+  }
+
+  /** A short, task-card-ready list (same shape as the task endpoints). */
+  private async taskList(filter: Record<string, unknown>): Promise<TaskView[]> {
+    const rows = await this.taskModel
+      .find(filter)
+      .sort({ dueDate: 1, _id: 1 })
+      .limit(DASHBOARD_LIST_LIMIT)
+      .populate([...TASK_POPULATE, { path: 'project', select: 'name' }])
+      .lean<TaskRecord[]>()
+      .exec();
+    return this.tasks.withSubtaskProgress(rows);
   }
 
   private workload(

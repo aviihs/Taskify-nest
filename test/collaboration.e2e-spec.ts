@@ -1,3 +1,5 @@
+import { getModelToken } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { DueDateReminderScheduler } from '../src/notifications/due-date-reminder.scheduler';
 import { createTestApp, TestContext, TestUser } from './utils/test-app';
 
@@ -333,6 +335,145 @@ describe('Comments, notifications, attachments, activity & dashboard (e2e)', () 
         }),
       ]);
       await ctx.as(outsider).get(`/workspaces/${acme}/dashboard`).expect(404);
+    });
+  });
+
+  describe('dashboards', () => {
+    const DAY = 86_400_000;
+    const today = () => new Date().toISOString().slice(0, 10);
+
+    // An earlier test gave "Ship it" a due date a few hours out, which is
+    // today or tomorrow depending on the clock. Keep these tests stable.
+    beforeAll(async () => {
+      await ctx
+        .as(owner)
+        .patch(`/tasks/${task}`)
+        .send({ dueDate: null })
+        .expect(200);
+    });
+
+    it('counts completions per local day for the last 7 days', async () => {
+      const tasks = ctx.app.get<Model<{ completedAt: Date | null }>>(
+        getModelToken('Task'),
+      );
+      const old = (
+        await ctx
+          .as(owner)
+          .post(`/projects/${project}/tasks`)
+          .send({ title: 'Finished earlier', status: 'DONE' })
+          .expect(201)
+      ).body._id;
+      await tasks.updateOne(
+        { _id: old },
+        { completedAt: new Date(Date.now() - 3 * DAY) },
+      );
+      const ancient = (
+        await ctx
+          .as(owner)
+          .post(`/projects/${project}/tasks`)
+          .send({ title: 'Long ago', status: 'DONE' })
+          .expect(201)
+      ).body._id;
+      await tasks.updateOne(
+        { _id: ancient },
+        { completedAt: new Date(Date.now() - 30 * DAY) },
+      );
+
+      const res = await ctx
+        .as(owner)
+        .get(`/workspaces/${acme}/dashboard?tzOffset=0`)
+        .expect(200);
+      const days = res.body.completedByDay as Array<{
+        date: string;
+        count: number;
+      }>;
+      expect(days).toHaveLength(7);
+      expect(days[6].date).toBe(today());
+      expect(days[6].count).toBe(1); // "Done", completed just now
+      expect(days[3].count).toBe(1); // three days ago
+      expect(days.reduce((n, d) => n + d.count, 0)).toBe(2); // 30 days ago: out
+      // Distinct consecutive calendar days.
+      expect(new Set(days.map((d) => d.date)).size).toBe(7);
+    });
+
+    it('lists overdue and due-soon tasks with project context', async () => {
+      const tomorrow = new Date(Date.now() + DAY).toISOString();
+      const nextMonth = new Date(Date.now() + 30 * DAY).toISOString();
+      for (const [title, dueDate] of [
+        ['Tomorrow', tomorrow],
+        ['Later', nextMonth],
+      ]) {
+        await ctx
+          .as(owner)
+          .post(`/projects/${project}/tasks`)
+          .send({ title, dueDate, assigneeIds: [dev.id] })
+          .expect(201);
+      }
+
+      const res = await ctx
+        .as(owner)
+        .get(`/workspaces/${acme}/dashboard?tzOffset=0`)
+        .expect(200);
+      const titles = (list: Array<{ title: string }>) =>
+        list.map((t) => t.title);
+      expect(titles(res.body.overdueTasks)).toEqual(['Late']);
+      expect(res.body.overdueTasks[0].project.name).toBe('Launch');
+      expect(titles(res.body.dueSoon)).toEqual(['Tomorrow']);
+      expect(res.body.dueSoonCount).toBe(1);
+      expect(res.body.summary.overdue).toBe(1);
+      // Completed tasks are never overdue, and "Done" isn't listed anywhere.
+      expect(titles(res.body.overdueTasks)).not.toContain('Done');
+    });
+
+    it('summarizes my own tasks without double counting', async () => {
+      const res = await ctx
+        .as(dev)
+        .get('/users/me/dashboard?tzOffset=0')
+        .expect(200);
+      const d = res.body;
+      // Ship it (no due date), Late (overdue), Tomorrow, Later (upcoming).
+      expect(d).toMatchObject({
+        open: 4,
+        overdue: 1,
+        dueToday: 0,
+        upcoming: 2,
+        noDueDate: 1,
+        completedThisWeek: 0,
+      });
+      expect(d.overdue + d.dueToday + d.upcoming + d.noDueDate).toBe(d.open);
+      expect(d.byWorkspace).toEqual([
+        { workspace: { _id: acme, name: 'Acme' }, open: 4, overdue: 1 },
+      ]);
+
+      // Each number matches its list.
+      const list = async (view: string) =>
+        (
+          await ctx
+            .as(dev)
+            .get(`/users/me/tasks?view=${view}&tzOffset=0`)
+            .expect(200)
+        ).body.items.map((t: { title: string }) => t.title);
+      expect(await list('my-day')).toEqual(['Late']);
+      expect(await list('overdue')).toHaveLength(d.overdue);
+      expect(await list('upcoming')).toHaveLength(d.upcoming);
+
+      // Completing a task moves it from open to done this week.
+      const late = (
+        await ctx.as(dev).get('/users/me/tasks?view=overdue').expect(200)
+      ).body.items[0]._id;
+      await ctx
+        .as(dev)
+        .patch(`/tasks/${late}`)
+        .send({ status: 'DONE' })
+        .expect(200);
+      const after = (
+        await ctx.as(dev).get('/users/me/dashboard?tzOffset=0').expect(200)
+      ).body;
+      expect(after).toMatchObject({
+        open: 3,
+        overdue: 0,
+        completedThisWeek: 1,
+      });
     });
   });
 

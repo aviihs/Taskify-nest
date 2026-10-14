@@ -194,6 +194,8 @@ export class ListTasksQueryDto extends PaginationQueryDto {
 
 export enum MyTasksView {
   ALL = 'all',
+  /** Overdue plus due today: what to work on now. */
+  MY_DAY = 'my-day',
   TODAY = 'today',
   UPCOMING = 'upcoming',
   OVERDUE = 'overdue',

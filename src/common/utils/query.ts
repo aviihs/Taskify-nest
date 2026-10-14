@@ -26,7 +26,7 @@ export function idEquals(
   return a != null && b != null && String(a) === String(b);
 }
 
-const DAY_MS = 86_400_000;
+export const DAY_MS = 86_400_000;
 
 /**
  * [start, end) of "today" in the client's timezone.
@@ -45,4 +45,34 @@ export function dayBounds(
   );
   const start = new Date(localMidnight + offsetMs);
   return { start, end: new Date(start.getTime() + DAY_MS) };
+}
+
+/**
+ * Monday 00:00 of the current week in the client's timezone (ISO weeks start
+ * on Monday). Same offset convention as [dayBounds].
+ */
+export function weekStart(tzOffsetMinutes = 0, now = new Date()): Date {
+  const { start } = dayBounds(tzOffsetMinutes, now);
+  const local = new Date(start.getTime() - tzOffsetMinutes * 60_000);
+  const sinceMonday = (local.getUTCDay() + 6) % 7;
+  return new Date(start.getTime() - sinceMonday * DAY_MS);
+}
+
+/**
+ * MongoDB `timezone` for a JS getTimezoneOffset value: -345 (Nepal) is
+ * "+05:45", 300 (New York, winter) is "-05:00".
+ */
+export function mongoTimezone(tzOffsetMinutes = 0): string {
+  const east = -tzOffsetMinutes;
+  const abs = Math.abs(east);
+  const hh = String(Math.floor(abs / 60)).padStart(2, '0');
+  const mm = String(abs % 60).padStart(2, '0');
+  return `${east < 0 ? '-' : '+'}${hh}:${mm}`;
+}
+
+/** YYYY-MM-DD of an instant in the client's timezone. */
+export function localDateKey(date: Date, tzOffsetMinutes = 0): string {
+  return new Date(date.getTime() - tzOffsetMinutes * 60_000)
+    .toISOString()
+    .slice(0, 10);
 }

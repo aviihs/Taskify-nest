@@ -32,6 +32,7 @@ import {
   WorkspaceInvitationSchema,
 } from '../invitations/schemas/invitation.schema';
 import { Label, LabelSchema } from '../labels/schemas/label.schema';
+import { Note, NoteSchema } from '../notes/schemas/note.schema';
 import {
   DeviceToken,
   DeviceTokenSchema,
@@ -87,6 +88,7 @@ export const MODELS: ModelDefinition[] = [
   { name: DeviceToken.name, schema: DeviceTokenSchema },
   { name: Notification.name, schema: NotificationSchema },
   { name: ActivityLog.name, schema: ActivityLogSchema },
+  { name: Note.name, schema: NoteSchema },
   { name: Conversation.name, schema: ConversationSchema },
   { name: ChatMessage.name, schema: ChatMessageSchema },
   { name: PresenceSession.name, schema: PresenceSessionSchema },

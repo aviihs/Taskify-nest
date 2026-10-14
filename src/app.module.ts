@@ -17,6 +17,7 @@ import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
 import { InvitationsModule } from './invitations/invitations.module';
 import { LabelsModule } from './labels/labels.module';
+import { NotesModule } from './notes/notes.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ProjectsModule } from './projects/projects.module';
 import { RealtimeModule } from './realtime/realtime.module';
@@ -52,6 +53,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     AttachmentsModule,
     ActivityModule,
     NotificationsModule,
+    NotesModule,
     ChatModule,
     SearchModule,
     DashboardModule,

@@ -2,11 +2,39 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model } from 'mongoose';
 import { pageMeta, paginate, Paginated } from '../common/pagination/pagination';
-import { dayBounds, toObjectId } from '../common/utils/query';
+import { dayBounds, toObjectId, weekStart } from '../common/utils/query';
 import { ProjectAccessService } from '../projects/project-access.service';
 import { MyTasksQueryDto, MyTasksView } from './dtos/task.dto';
 import { Task, TaskRecord, TaskStatus } from './schemas/task.schema';
 import { TASK_POPULATE, TaskView, TasksService } from './tasks.service';
+
+/**
+ * The personal dashboard's numbers. Every task assigned to me in a project I
+ * can still access (subtasks included, exactly like the My Tasks list), so
+ * each number equals the length of the matching list.
+ *
+ * - open: not DONE.
+ * - overdue / dueToday / upcoming / noDueDate: open tasks split by due date
+ *   (before today / today / after today / none). Disjoint; they add up to open.
+ * - completedThisWeek: DONE with completedAt since Monday 00:00 (local).
+ *
+ * "Today" and the week are the client's local calendar (tzOffset).
+ */
+export interface PersonalDashboard {
+  open: number;
+  overdue: number;
+  dueToday: number;
+  upcoming: number;
+  noDueDate: number;
+  completedThisWeek: number;
+  /** Open/overdue per workspace, so mixed numbers can be told apart. */
+  byWorkspace: Array<{
+    workspace: { _id: string; name: string };
+    open: number;
+    overdue: number;
+  }>;
+  period: { todayStart: Date; todayEnd: Date; weekStart: Date };
+}
 
 /**
  * "My Tasks" is a view, not a model: tasks assigned to me, limited to the
@@ -55,10 +83,121 @@ export class MyTasksService {
     return { ...page, items: await this.tasks.withSubtaskProgress(page.items) };
   }
 
+  async summary(userId: string, tzOffset = 0): Promise<PersonalDashboard> {
+    const { start, end } = dayBounds(tzOffset);
+    const monday = weekStart(tzOffset);
+    const period = { todayStart: start, todayEnd: end, weekStart: monday };
+    const projectIds = await this.projectAccess.accessibleProjectIds(userId);
+    const empty: PersonalDashboard = {
+      open: 0,
+      overdue: 0,
+      dueToday: 0,
+      upcoming: 0,
+      noDueDate: 0,
+      completedThisWeek: 0,
+      byWorkspace: [],
+      period,
+    };
+    if (!projectIds.length) return empty;
+
+    const isOpen = { $ne: ['$status', TaskStatus.DONE] };
+    const hasDue = { $ne: [{ $ifNull: ['$dueDate', null] }, null] };
+    const count = (cond: unknown) => ({ $sum: { $cond: [cond, 1, 0] } });
+    const overdue = { $and: [isOpen, hasDue, { $lt: ['$dueDate', start] }] };
+
+    const [facets] = await this.taskModel
+      .aggregate([
+        {
+          $match: {
+            assignees: toObjectId(userId),
+            project: { $in: projectIds },
+            deletedAt: null,
+          },
+        },
+        {
+          $facet: {
+            totals: [
+              {
+                $group: {
+                  _id: null,
+                  open: count(isOpen),
+                  overdue: count(overdue),
+                  dueToday: count({
+                    $and: [
+                      isOpen,
+                      hasDue,
+                      { $gte: ['$dueDate', start] },
+                      { $lt: ['$dueDate', end] },
+                    ],
+                  }),
+                  upcoming: count({
+                    $and: [isOpen, hasDue, { $gte: ['$dueDate', end] }],
+                  }),
+                  noDueDate: count({ $and: [isOpen, { $not: [hasDue] }] }),
+                  completedThisWeek: count({
+                    $and: [
+                      { $eq: ['$status', TaskStatus.DONE] },
+                      { $gte: ['$completedAt', monday] },
+                    ],
+                  }),
+                },
+              },
+            ],
+            byWorkspace: [
+              { $match: { status: { $ne: TaskStatus.DONE } } },
+              {
+                $group: {
+                  _id: '$workspace',
+                  open: { $sum: 1 },
+                  overdue: count(overdue),
+                },
+              },
+              {
+                $lookup: {
+                  from: 'workspaces',
+                  localField: '_id',
+                  foreignField: '_id',
+                  pipeline: [{ $project: { name: 1 } }],
+                  as: 'workspace',
+                },
+              },
+              { $unwind: '$workspace' },
+              { $sort: { open: -1 } },
+            ],
+          },
+        },
+      ])
+      .exec();
+
+    const totals = facets.totals[0] ?? {};
+    return {
+      open: totals.open ?? 0,
+      overdue: totals.overdue ?? 0,
+      dueToday: totals.dueToday ?? 0,
+      upcoming: totals.upcoming ?? 0,
+      noDueDate: totals.noDueDate ?? 0,
+      completedThisWeek: totals.completedThisWeek ?? 0,
+      byWorkspace: (
+        facets.byWorkspace as Array<{
+          workspace: { _id: unknown; name: string };
+          open: number;
+          overdue: number;
+        }>
+      ).map((w) => ({
+        workspace: { _id: String(w.workspace._id), name: w.workspace.name },
+        open: w.open,
+        overdue: w.overdue,
+      })),
+      period,
+    };
+  }
+
   private viewFilter(view: MyTasksView, tzOffset: number): FilterQuery<Task> {
     const open = { status: { $ne: TaskStatus.DONE } };
     const { start, end } = dayBounds(tzOffset);
     switch (view) {
+      case MyTasksView.MY_DAY:
+        return { ...open, dueDate: { $ne: null, $lt: end } };
       case MyTasksView.TODAY:
         return { ...open, dueDate: { $gte: start, $lt: end } };
       case MyTasksView.UPCOMING:
