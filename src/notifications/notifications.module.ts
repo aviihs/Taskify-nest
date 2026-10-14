@@ -31,6 +31,6 @@ import {
     PushService,
     PushNotificationListener,
   ],
-  exports: [NotificationsService],
+  exports: [NotificationsService, PushService],
 })
 export class NotificationsModule {}

@@ -12,6 +12,18 @@ import {
   AttachmentSchema,
 } from '../attachments/schemas/task-attachment.schema';
 import {
+  ChatMessage,
+  ChatMessageSchema,
+} from '../chat/schemas/chat-message.schema';
+import {
+  Conversation,
+  ConversationSchema,
+} from '../chat/schemas/conversation.schema';
+import {
+  PresenceSession,
+  PresenceSessionSchema,
+} from '../chat/schemas/presence-session.schema';
+import {
   Comment,
   CommentSchema,
 } from '../comments/schemas/task-comment.schema';
@@ -75,6 +87,9 @@ export const MODELS: ModelDefinition[] = [
   { name: DeviceToken.name, schema: DeviceTokenSchema },
   { name: Notification.name, schema: NotificationSchema },
   { name: ActivityLog.name, schema: ActivityLogSchema },
+  { name: Conversation.name, schema: ConversationSchema },
+  { name: ChatMessage.name, schema: ChatMessageSchema },
+  { name: PresenceSession.name, schema: PresenceSessionSchema },
 ];
 
 export const collectionOf = (model: ModelDefinition): string =>

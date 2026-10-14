@@ -122,6 +122,16 @@ export const UserSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    /**
+     * Chat availability the user chose. OFFLINE ("appear offline") hides
+     * them from presence even while connected; see chat/presence.service.ts.
+     */
+    availability: {
+      type: String,
+      enum: ['ONLINE', 'OFFLINE'],
+      default: 'ONLINE',
+    },
   },
   {
     timestamps: true,
