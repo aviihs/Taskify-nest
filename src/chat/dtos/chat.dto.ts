@@ -1,6 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayNotEmpty,
+  IsArray,
+  IsBoolean,
   IsDate,
   IsIn,
   IsInt,
@@ -46,6 +50,31 @@ export class SendMessageDto {
     message: 'clientId must be 8-64 letters, digits, - or _',
   })
   clientId?: string;
+
+  @ApiPropertyOptional({ description: 'The text was forwarded from a chat' })
+  @IsOptional()
+  @IsBoolean()
+  forwarded?: boolean;
+}
+
+export const MAX_DELETE_BATCH = 100;
+
+export class DeleteMessagesDto {
+  @ApiProperty({ type: [String], maxItems: MAX_DELETE_BATCH })
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(MAX_DELETE_BATCH)
+  @IsMongoId({ each: true })
+  messageIds: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'Delete for everyone (only your own messages); otherwise only for you',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  forEveryone?: boolean;
 }
 
 export class ListMessagesQueryDto {

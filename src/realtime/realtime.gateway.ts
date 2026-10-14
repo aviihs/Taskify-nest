@@ -12,8 +12,10 @@ import { isValidObjectId } from 'mongoose';
 import { Server, Socket } from 'socket.io';
 import {
   CHAT_MESSAGE_CREATED,
+  CHAT_MESSAGES_DELETED,
   CHAT_READ,
   ChatMessageCreatedEvent,
+  ChatMessagesDeletedEvent,
   ChatReadEvent,
   PRESENCE_CHANGED,
   PresenceChangedEvent,
@@ -229,6 +231,16 @@ export class RealtimeGateway
       conversationId: event.conversationId,
       userId: event.userId,
       lastReadSeq: event.lastReadSeq,
+    });
+  }
+
+  @OnDomainEvent(CHAT_MESSAGES_DELETED)
+  pushChatDeleted(event: ChatMessagesDeletedEvent): void {
+    this.server.to(event.memberIds.map(rooms.user)).emit('chat:deleted', {
+      conversationId: event.conversationId,
+      messageIds: event.messageIds,
+      forEveryone: event.forEveryone,
+      cleared: event.cleared,
     });
   }
 

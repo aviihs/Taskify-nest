@@ -21,6 +21,9 @@ export interface ChatMessageView {
   createdAt: Date;
   /** Only on the sender's copy, so their device can match its pending send. */
   clientId?: string | null;
+  forwarded: boolean;
+  /** Deleted for everyone: `body` is empty. */
+  deleted: boolean;
 }
 
 export const CHAT_MESSAGE_CREATED = 'chat.message.created';
@@ -37,6 +40,20 @@ export interface ChatReadEvent {
   conversationId: string;
   userId: string;
   lastReadSeq: number;
+}
+
+export const CHAT_MESSAGES_DELETED = 'chat.messages.deleted';
+/**
+ * Messages deleted, or a whole chat cleared. Deleting for everyone goes to
+ * every participant; deleting for me (and clearing) only to my own devices.
+ */
+export interface ChatMessagesDeletedEvent {
+  memberIds: string[];
+  conversationId: string;
+  messageIds: string[];
+  forEveryone: boolean;
+  /** The whole chat was cleared for these members. */
+  cleared: boolean;
 }
 
 export const PRESENCE_CHANGED = 'chat.presence.changed';

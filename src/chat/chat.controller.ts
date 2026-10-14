@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -17,6 +18,7 @@ import { AuthUser } from '../common/types/auth-user';
 import { ChatService } from './chat.service';
 import {
   ContactsQueryDto,
+  DeleteMessagesDto,
   ListConversationsQueryDto,
   ListMessagesQueryDto,
   MarkReadDto,
@@ -82,6 +84,32 @@ export class ChatController {
     @Body() dto: SendMessageDto,
   ) {
     return this.chat.send(user.id, id, dto);
+  }
+
+  @Delete('conversations/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary:
+      'Delete chat: clear its history and remove it from my inbox (only for me)',
+  })
+  async clear(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ): Promise<void> {
+    await this.chat.clear(user.id, id);
+  }
+
+  @Post('conversations/:id/messages/delete')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete messages for me, or my own messages for everyone',
+  })
+  deleteMessages(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: DeleteMessagesDto,
+  ) {
+    return this.chat.deleteMessages(user.id, id, dto);
   }
 
   @Post('conversations/:id/read')

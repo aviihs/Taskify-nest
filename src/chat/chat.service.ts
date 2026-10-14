@@ -22,14 +22,17 @@ import {
 } from '../workspaces/schemas/workspace.schema';
 import {
   CHAT_MESSAGE_CREATED,
+  CHAT_MESSAGES_DELETED,
   CHAT_READ,
   ChatMessageCreatedEvent,
+  ChatMessagesDeletedEvent,
   ChatMessageView,
   ChatReadEvent,
   ChatUser,
 } from './chat-events';
 import {
   ContactsQueryDto,
+  DeleteMessagesDto,
   ListConversationsQueryDto,
   ListMessagesQueryDto,
   OpenDirectConversationDto,
@@ -50,6 +53,8 @@ const CHAT_USER_FIELDS = {
   avatar: 1,
 } as const;
 const PREVIEW_LENGTH = 140;
+/** Inbox preview of a last message deleted for everyone. */
+export const DELETED_PREVIEW = 'Message deleted';
 const MAX_CONTACTS = 200;
 
 interface ChatUserDoc {
@@ -231,7 +236,7 @@ export class ChatService {
     if (!workspaceIds.length) return { items: [], hasMore: false };
 
     const filter: FilterQuery<Conversation> = {
-      'members.user': toObjectId(userId),
+      members: this.visibleTo(userId),
       workspace: { $in: workspaceIds },
       lastMessageAt: query.before ? { $lt: query.before } : { $ne: null },
     };
@@ -254,7 +259,7 @@ export class ChatService {
     if (!workspaceIds.length) return { count: 0 };
     const rows = await this.conversationModel
       .find({
-        'members.user': toObjectId(userId),
+        members: this.visibleTo(userId),
         workspace: { $in: workspaceIds },
         lastMessageAt: { $ne: null },
       })
@@ -286,11 +291,19 @@ export class ChatService {
     }
 
     const forward = query.after !== undefined;
+    // Nothing from before I cleared the chat, nor what I deleted for myself.
+    const seq: { $gt: number; $lt?: number } = {
+      $gt: Math.max(
+        this.memberOf(conversation, userId)?.clearedSeq ?? 0,
+        query.after ?? 0,
+      ),
+    };
+    if (query.before !== undefined) seq.$lt = query.before;
     const filter: FilterQuery<ChatMessage> = {
       conversation: conversation._id,
+      seq,
+      hiddenFor: { $ne: toObjectId(userId) },
     };
-    if (forward) filter.seq = { $gt: query.after };
-    else if (query.before !== undefined) filter.seq = { $lt: query.before };
 
     const rows = await this.messageModel
       .find(filter)
@@ -359,6 +372,7 @@ export class ChatService {
           body,
           seq,
           clientId: dto.clientId ?? null,
+          forwarded: dto.forwarded === true,
         })
       ).toObject() as ChatMessageRecord;
     } catch (error) {
@@ -392,6 +406,13 @@ export class ChatService {
         .exec(),
       // Sending means I have seen everything up to my own message.
       this.advanceRead(conversation._id, sender, seq),
+      // A new message brings a deleted chat back to everyone's inbox.
+      this.conversationModel
+        .updateOne(
+          { _id: conversation._id, 'members.hidden': true },
+          { $set: { 'members.$[].hidden': false } },
+        )
+        .exec(),
     ]);
 
     const view = this.toMessageView(message, userId);
@@ -445,6 +466,99 @@ export class ChatService {
       lastReadSeq,
       unreadCount: unread.get(String(conversation._id)) ?? 0,
     };
+  }
+
+  /**
+   * Deletes messages. For everyone: only the caller's own messages; the body
+   * is erased and a placeholder stays for both sides. For me: hidden from my
+   * history only.
+   */
+  async deleteMessages(
+    userId: string,
+    conversationId: string,
+    dto: DeleteMessagesDto,
+  ): Promise<{ messageIds: string[]; forEveryone: boolean }> {
+    const conversation = await this.authorize(userId, conversationId);
+    const me = toObjectId(userId);
+    const forEveryone = dto.forEveryone === true;
+    const ids = [...new Set(dto.messageIds)].map(toObjectId);
+    const found = await this.messageModel
+      .find({ _id: { $in: ids }, conversation: conversation._id })
+      .select('sender deletedAt')
+      .lean<ChatMessageRecord[]>()
+      .exec();
+    if (found.length !== ids.length) {
+      throw new NotFoundException('Message not found');
+    }
+
+    if (forEveryone) {
+      if (found.some((m) => !m.sender.equals(me))) {
+        throw new ForbiddenException(
+          'You can only delete your own messages for everyone',
+        );
+      }
+      await this.messageModel
+        .updateMany(
+          { _id: { $in: ids }, deletedAt: null },
+          { $set: { deletedAt: new Date(), body: '' } },
+        )
+        .exec();
+      const last = conversation.lastMessage;
+      if (last && ids.some((id) => id.equals(last.id))) {
+        await this.conversationModel
+          .updateOne(
+            { _id: conversation._id, 'lastMessage.id': last.id },
+            { $set: { 'lastMessage.preview': DELETED_PREVIEW } },
+          )
+          .exec();
+      }
+    } else {
+      await this.messageModel
+        .updateMany({ _id: { $in: ids } }, { $addToSet: { hiddenFor: me } })
+        .exec();
+    }
+
+    const messageIds = ids.map(String);
+    const event: ChatMessagesDeletedEvent = {
+      memberIds: forEveryone ? this.memberIds(conversation) : [userId],
+      conversationId: String(conversation._id),
+      messageIds,
+      forEveryone,
+      cleared: false,
+    };
+    this.emitter.emit(CHAT_MESSAGES_DELETED, event);
+    return { messageIds, forEveryone };
+  }
+
+  /**
+   * "Delete chat": clears the history for me and drops the chat from my
+   * inbox. The other person keeps theirs; a new message brings it back.
+   */
+  async clear(userId: string, conversationId: string): Promise<void> {
+    const conversation = await this.authorize(userId, conversationId);
+    const me = toObjectId(userId);
+    const { lastSeq } = conversation;
+    await this.conversationModel
+      .updateOne(
+        { _id: conversation._id },
+        {
+          $max: {
+            'members.$[me].clearedSeq': lastSeq,
+            'members.$[me].lastReadSeq': lastSeq,
+          },
+          $set: { 'members.$[me].hidden': true },
+        },
+        { arrayFilters: [{ 'me.user': me }] },
+      )
+      .exec();
+    const event: ChatMessagesDeletedEvent = {
+      memberIds: [userId],
+      conversationId: String(conversation._id),
+      messageIds: [],
+      forEveryone: false,
+      cleared: true,
+    };
+    this.emitter.emit(CHAT_MESSAGES_DELETED, event);
   }
 
   // ---------------------------------------------------------------------------
@@ -688,6 +802,18 @@ export class ChatService {
     return conversation.members.map((m) => String(m.user));
   }
 
+  private memberOf(
+    conversation: Pick<ConversationRecord, 'members'>,
+    userId: string,
+  ) {
+    return conversation.members.find((m) => String(m.user) === userId);
+  }
+
+  /** Matches conversations I'm in and haven't deleted. */
+  private visibleTo(userId: string) {
+    return { $elemMatch: { user: toObjectId(userId), hidden: { $ne: true } } };
+  }
+
   private readSeqOf(
     conversation: Pick<ConversationRecord, 'members'>,
     userId: string,
@@ -703,13 +829,16 @@ export class ChatService {
     viewerId: string,
   ): ChatMessageView {
     const senderId = String(m.sender);
+    const deleted = m.deletedAt != null;
     return {
       _id: String(m._id),
       conversationId: String(m.conversation),
       senderId,
-      body: m.body,
+      body: deleted ? '' : m.body,
       seq: m.seq,
       createdAt: m.createdAt,
+      forwarded: m.forwarded === true,
+      deleted,
       ...(senderId === viewerId && { clientId: m.clientId }),
     };
   }

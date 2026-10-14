@@ -14,6 +14,14 @@ export class ConversationMember {
 
   @Prop({ type: Number, default: 0, min: 0 })
   lastReadSeq: number;
+
+  /** "Delete chat": messages up to this seq are gone for this member. */
+  @Prop({ type: Number, default: 0, min: 0 })
+  clearedSeq: number;
+
+  /** Out of this member's inbox until a new message arrives. */
+  @Prop({ type: Boolean, default: false })
+  hidden: boolean;
 }
 const ConversationMemberSchema =
   SchemaFactory.createForClass(ConversationMember);

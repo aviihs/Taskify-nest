@@ -496,6 +496,115 @@ describe('Chat, typing & presence (e2e)', () => {
     });
   });
 
+  describe('forward and delete', () => {
+    const history = async (user: TestUser) =>
+      (
+        await ctx
+          .as(user)
+          .get(`/chat/conversations/${conversation}/messages?limit=100`)
+          .expect(200)
+      ).body.items as Array<Record<string, unknown>>;
+    const remove = (
+      user: TestUser,
+      messageIds: string[],
+      forEveryone = false,
+    ) =>
+      ctx
+        .as(user)
+        .post(`/chat/conversations/${conversation}/messages/delete`)
+        .send({ messageIds, forEveryone });
+    const inbox = async (user: TestUser) =>
+      (await ctx.as(user).get('/chat/conversations').expect(200)).body
+        .items as Array<{ _id: string; lastMessage: { preview: string } }>;
+
+    it('marks forwarded messages', async () => {
+      const sent = (
+        await ctx
+          .as(owner)
+          .post(`/chat/conversations/${conversation}/messages`)
+          .send({ body: 'Pass this on', forwarded: true })
+          .expect(201)
+      ).body;
+      expect(sent).toMatchObject({ forwarded: true, deleted: false });
+      expect((await send(owner, 'Plain').expect(201)).body.forwarded).toBe(
+        false,
+      );
+    });
+
+    it('deletes for me only, telling only my devices', async () => {
+      const devSocket = await connect(dev);
+      const ownerSocket = await connect(owner);
+      const msg = (await send(dev, 'Only mine to hide').expect(201)).body;
+
+      const mine = next<{ messageIds: string[] }>(devSocket, 'chat:deleted');
+      const theirs = next(ownerSocket, 'chat:deleted', 400);
+      await remove(dev, [msg._id]).expect(200);
+
+      expect((await mine)?.messageIds).toEqual([msg._id]);
+      expect(await theirs).toBeNull();
+      expect((await history(dev)).some((m) => m._id === msg._id)).toBe(false);
+      expect((await history(owner)).some((m) => m._id === msg._id)).toBe(true);
+    });
+
+    it('deletes my own messages for everyone, leaving a placeholder', async () => {
+      const ownerSocket = await connect(owner);
+      const msg = (await send(dev, 'Oops, wrong chat').expect(201)).body;
+
+      // Not someone else's message, and not across conversations.
+      await remove(owner, [msg._id], true).expect(403);
+      await remove(dev, [new Types.ObjectId().toString()], true).expect(404);
+      await remove(dev, [], true).expect(400);
+
+      const toOwner = next<{ messageIds: string[]; forEveryone: boolean }>(
+        ownerSocket,
+        'chat:deleted',
+      );
+      await remove(dev, [msg._id], true).expect(200);
+      expect(await toOwner).toMatchObject({
+        messageIds: [msg._id],
+        forEveryone: true,
+      });
+
+      for (const user of [owner, dev]) {
+        const copy = (await history(user)).find((m) => m._id === msg._id);
+        expect(copy).toMatchObject({ deleted: true, body: '' });
+      }
+      const stored = await ctx.app
+        .get<Model<{ body: string }>>(getModelToken('ChatMessage'))
+        .findById(msg._id)
+        .lean()
+        .exec();
+      expect(stored?.body).toBe(''); // the text is really gone
+      expect(
+        (await inbox(owner)).find((c) => c._id === conversation)?.lastMessage
+          .preview,
+      ).toBe('Message deleted');
+    });
+
+    it('deleting a chat clears it for me until a new message arrives', async () => {
+      const before = (await history(owner)).length;
+      expect(before).toBeGreaterThan(0);
+
+      await ctx
+        .as(dev)
+        .delete(`/chat/conversations/${conversation}`)
+        .expect(204);
+      expect(await history(dev)).toEqual([]);
+      expect((await inbox(dev)).some((c) => c._id === conversation)).toBe(
+        false,
+      );
+      expect(
+        (await ctx.as(dev).get('/chat/unread-count').expect(200)).body.count,
+      ).toBe(0);
+      // The other person keeps everything.
+      expect(await history(owner)).toHaveLength(before);
+
+      const fresh = (await send(owner, 'Starting over').expect(201)).body;
+      expect((await inbox(dev)).some((c) => c._id === conversation)).toBe(true);
+      expect((await history(dev)).map((m) => m._id)).toEqual([fresh._id]);
+    });
+  });
+
   describe('revoked access', () => {
     it('removed members lose the conversation; the other side keeps read-only history', async () => {
       await ctx
