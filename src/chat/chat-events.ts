@@ -31,6 +31,8 @@ export interface ChatMessageCreatedEvent {
   /** Every participant, the sender included (their other devices sync too). */
   memberIds: string[];
   sender: ChatUser;
+  /** Group name; null for direct messages. */
+  conversationName: string | null;
   message: ChatMessageView;
 }
 
@@ -54,6 +56,13 @@ export interface ChatMessagesDeletedEvent {
   forEveryone: boolean;
   /** The whole chat was cleared for these members. */
   cleared: boolean;
+}
+
+export const CHAT_CONVERSATION_CREATED = 'chat.conversation.created';
+/** A group was created; its members' inboxes changed. */
+export interface ChatConversationCreatedEvent {
+  memberIds: string[];
+  conversationId: string;
 }
 
 export const PRESENCE_CHANGED = 'chat.presence.changed';

@@ -4,7 +4,12 @@ import { Persisted } from '../../common/types/persisted';
 
 export enum ConversationType {
   DIRECT = 'DIRECT',
+  GROUP = 'GROUP',
 }
+
+export const MAX_GROUP_NAME_LENGTH = 60;
+/** Including the creator. */
+export const MAX_GROUP_MEMBERS = 50;
 
 /** A participant and how far they have read (a message `seq`). */
 @Schema({ _id: false })
@@ -47,8 +52,8 @@ export class LastMessage {
 const LastMessageSchema = SchemaFactory.createForClass(LastMessage);
 
 /**
- * A direct conversation between two members of one workspace (DMs are
- * workspace-scoped, like the rest of Taskify). Reading or writing requires
+ * A direct conversation between two members of one workspace, or a named
+ * group of members (chats are workspace-scoped, like the rest of Taskify). Reading or writing requires
  * being a participant AND an active member of the workspace, so leaving a
  * workspace ends access to its conversations.
  */
@@ -70,12 +75,22 @@ export class Conversation {
   })
   type: ConversationType;
 
-  /** `<workspace>:<userA>:<userB>` (sorted). Unique, so a pair has one DM per workspace. */
+  /**
+   * DM: `<workspace>:<userA>:<userB>` (sorted). Unique, so a pair has one DM
+   * per workspace. Group: `group:<random id>`.
+   */
   @Prop({ type: String, required: true, immutable: true })
   directKey: string;
 
   @Prop({ type: [ConversationMemberSchema], required: true })
   members: ConversationMember[];
+
+  /** Groups only. */
+  @Prop({ type: String, default: null, maxlength: MAX_GROUP_NAME_LENGTH })
+  name: string | null;
+
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
+  createdBy: Types.ObjectId | null;
 
   /** Highest message `seq` handed out; messages are numbered 1, 2, 3, … */
   @Prop({ type: Number, default: 0, min: 0 })

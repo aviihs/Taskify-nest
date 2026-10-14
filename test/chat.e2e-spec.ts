@@ -605,6 +605,177 @@ describe('Chat, typing & presence (e2e)', () => {
     });
   });
 
+  describe('workspaces and groups', () => {
+    let designer: TestUser;
+    let group: string;
+
+    const join = async (workspaceId: string, user: TestUser) => {
+      const inv = await ctx
+        .as(owner)
+        .post(`/workspaces/${workspaceId}/invitations`)
+        .send({ email: user.email, role: 'MEMBER' })
+        .expect(201);
+      await ctx
+        .as(user)
+        .post(`/invitations/${inv.body._id}/accept`)
+        .expect(201);
+    };
+
+    beforeAll(async () => {
+      designer = await ctx.signUp('designer');
+      await join(acme, designer);
+    });
+
+    it('keeps a separate chat per workspace and filters by workspace', async () => {
+      const beta = (
+        await ctx
+          .as(owner)
+          .post('/workspaces')
+          .send({ name: 'Beta' })
+          .expect(201)
+      ).body._id;
+      await join(beta, dev);
+      const betaChat = (
+        await ctx
+          .as(owner)
+          .post('/chat/conversations')
+          .send({ workspaceId: beta, userId: dev.id })
+          .expect(201)
+      ).body._id;
+      expect(betaChat).not.toBe(conversation);
+      await ctx
+        .as(owner)
+        .post(`/chat/conversations/${betaChat}/messages`)
+        .send({ body: 'Beta only' })
+        .expect(201);
+
+      const ids = async (workspaceId: string) =>
+        (
+          await ctx
+            .as(dev)
+            .get(`/chat/conversations?workspaceId=${workspaceId}`)
+            .expect(200)
+        ).body.items.map((c: { _id: string }) => c._id);
+      expect(await ids(beta)).toEqual([betaChat]);
+      expect(await ids(acme)).not.toContain(betaChat);
+      expect(
+        (
+          await ctx
+            .as(dev)
+            .get(`/chat/unread-count?workspaceId=${beta}`)
+            .expect(200)
+        ).body.count,
+      ).toBe(1);
+      // Someone outside the workspace can't be messaged there.
+      await ctx
+        .as(owner)
+        .post('/chat/conversations')
+        .send({ workspaceId: beta, userId: designer.id })
+        .expect(404);
+    });
+
+    it('validates groups', async () => {
+      const create = (body: Record<string, unknown>) =>
+        ctx.as(owner).post('/chat/groups').send(body);
+      await create({
+        workspaceId: acme,
+        name: 'Duo',
+        memberIds: [dev.id],
+      }).expect(400);
+      await create({
+        workspaceId: acme,
+        name: '   ',
+        memberIds: [dev.id, designer.id],
+      }).expect(400);
+      await create({
+        workspaceId: acme,
+        name: 'Leak',
+        memberIds: [dev.id, outsider.id],
+      }).expect(404);
+      await ctx
+        .as(outsider)
+        .post('/chat/groups')
+        .send({
+          workspaceId: acme,
+          name: 'X',
+          memberIds: [dev.id, designer.id],
+        })
+        .expect(404);
+    });
+
+    it('creates a group that every member sees and can chat in live', async () => {
+      const devSocket = await connect(dev);
+      const designerSocket = await connect(designer);
+      const announced = next<{ conversationId: string }>(
+        designerSocket,
+        'chat:conversation',
+      );
+      const view = (
+        await ctx
+          .as(owner)
+          .post('/chat/groups')
+          .send({
+            workspaceId: acme,
+            name: '  Launch   crew ',
+            memberIds: [dev.id, designer.id],
+          })
+          .expect(201)
+      ).body;
+      group = view._id;
+      expect(view).toMatchObject({
+        type: 'GROUP',
+        name: 'Launch crew',
+        canSend: true,
+      });
+      expect(view.members.map((m: { _id: string }) => m._id).sort()).toEqual(
+        [dev.id, designer.id].sort(),
+      );
+      expect((await announced)?.conversationId).toBe(group);
+
+      // In the inbox before the first message.
+      const designerInbox = (
+        await ctx
+          .as(designer)
+          .get(`/chat/conversations?workspaceId=${acme}`)
+          .expect(200)
+      ).body.items;
+      expect(designerInbox.map((c: { _id: string }) => c._id)).toContain(group);
+
+      const toDev = next<{ message: { body: string } }>(
+        devSocket,
+        'chat:message',
+      );
+      const toDesigner = next<{ message: { body: string } }>(
+        designerSocket,
+        'chat:message',
+      );
+      await ctx
+        .as(owner)
+        .post(`/chat/conversations/${group}/messages`)
+        .send({ body: 'Kickoff at 10' })
+        .expect(201);
+      expect((await toDev)?.message.body).toBe('Kickoff at 10');
+      expect((await toDesigner)?.message.body).toBe('Kickoff at 10');
+
+      // "Read" only once everyone else has read it.
+      const read = (user: TestUser) =>
+        ctx
+          .as(user)
+          .post(`/chat/conversations/${group}/read`)
+          .send({ seq: 1 })
+          .expect(200);
+      const ownerView = () =>
+        ctx.as(owner).get(`/chat/conversations/${group}`).expect(200);
+      await read(dev);
+      expect((await ownerView()).body.peerLastReadSeq).toBe(0);
+      await read(designer);
+      expect((await ownerView()).body.peerLastReadSeq).toBe(1);
+
+      // Outsiders can't see it.
+      await ctx.as(outsider).get(`/chat/conversations/${group}`).expect(404);
+    });
+  });
+
   describe('revoked access', () => {
     it('removed members lose the conversation; the other side keeps read-only history', async () => {
       await ctx
@@ -617,11 +788,26 @@ describe('Chat, typing & presence (e2e)', () => {
         .as(dev)
         .get(`/chat/conversations/${conversation}/messages`)
         .expect(404);
+      // Acme chats (DM and group) are gone; chats in other workspaces stay.
+      const inbox = (await ctx.as(dev).get('/chat/conversations').expect(200))
+        .body.items as Array<{ workspace: { _id: string } }>;
+      expect(inbox.length).toBeGreaterThan(0);
+      expect(inbox.some((c) => c.workspace._id === acme)).toBe(false);
       expect(
-        (await ctx.as(dev).get('/chat/conversations').expect(200)).body.items,
+        (
+          await ctx
+            .as(dev)
+            .get(`/chat/conversations?workspaceId=${acme}`)
+            .expect(200)
+        ).body.items,
       ).toEqual([]);
       expect(
-        (await ctx.as(dev).get('/chat/unread-count').expect(200)).body.count,
+        (
+          await ctx
+            .as(dev)
+            .get(`/chat/unread-count?workspaceId=${acme}`)
+            .expect(200)
+        ).body.count,
       ).toBe(0);
 
       const view = (

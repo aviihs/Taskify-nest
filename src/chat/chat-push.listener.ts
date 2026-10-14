@@ -23,7 +23,10 @@ export class ChatPushListener {
   async onMessage(event: ChatMessageCreatedEvent): Promise<void> {
     if (!this.push.enabled) return;
     const { sender, message } = event;
-    const title = `${sender.firstName} ${sender.lastName}`.trim();
+    const name = `${sender.firstName} ${sender.lastName}`.trim();
+    const title = event.conversationName
+      ? `${name || 'Someone'} · ${event.conversationName}`
+      : name;
     const body =
       message.body.length > PUSH_PREVIEW_LENGTH
         ? `${message.body.slice(0, PUSH_PREVIEW_LENGTH - 1)}…`

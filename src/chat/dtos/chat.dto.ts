@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   ArrayNotEmpty,
   IsArray,
   IsBoolean,
@@ -17,7 +17,12 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 import { MAX_MESSAGE_LENGTH } from '../schemas/chat-message.schema';
+import {
+  MAX_GROUP_MEMBERS,
+  MAX_GROUP_NAME_LENGTH,
+} from '../schemas/conversation.schema';
 
 export const AVAILABILITIES = ['ONLINE', 'OFFLINE'] as const;
 export type Availability = (typeof AVAILABILITIES)[number];
@@ -30,6 +35,31 @@ export class OpenDirectConversationDto {
   @ApiProperty({ description: 'The person to message' })
   @IsMongoId()
   userId: string;
+}
+
+export class CreateGroupDto {
+  @ApiProperty({ description: 'Workspace every member belongs to' })
+  @IsMongoId()
+  workspaceId: string;
+
+  @ApiProperty({ example: 'Design team', maxLength: MAX_GROUP_NAME_LENGTH })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(MAX_GROUP_NAME_LENGTH)
+  name: string;
+
+  @ApiProperty({
+    type: [String],
+    description: 'The other members (at least two), not including you',
+  })
+  @IsArray()
+  @ArrayMinSize(2)
+  @ArrayMaxSize(MAX_GROUP_MEMBERS - 1)
+  @IsMongoId({ each: true })
+  memberIds: string[];
 }
 
 export class SendMessageDto {
@@ -105,7 +135,14 @@ export class ListMessagesQueryDto {
   limit = 30;
 }
 
-export class ListConversationsQueryDto {
+export class WorkspaceFilterDto {
+  @ApiPropertyOptional({ description: 'Only chats of this workspace' })
+  @IsOptional()
+  @IsMongoId()
+  workspaceId?: string;
+}
+
+export class ListConversationsQueryDto extends WorkspaceFilterDto {
   @ApiPropertyOptional({
     description: 'Next page: conversations whose last message is older',
   })
