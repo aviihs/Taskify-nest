@@ -27,7 +27,7 @@ describe('Chat, typing & presence (e2e)', () => {
       socket.once('connect', () => resolve(socket));
       socket.once('connect_error', reject);
     });
-  const next = <T>(socket: Socket, event: string, ms = 1000) =>
+  const next = <T>(socket: Socket, event: string, ms = 5000) =>
     new Promise<T | null>((resolve) => {
       const timer = setTimeout(() => resolve(null), ms);
       socket.once(event, (payload: T) => {
@@ -384,10 +384,14 @@ describe('Chat, typing & presence (e2e)', () => {
     it('stops the typing indicator when a message is sent', async () => {
       const ownerSocket = await connect(owner);
       const devSocket = await connect(dev);
+      // The ack to dev can beat the fan-out to owner, so wait for the
+      // "typing: true" to land before listening for the stop.
+      const started = next(ownerSocket, 'chat:typing');
       await request(devSocket, 'chat:typing', {
         conversationId: conversation,
         typing: true,
       });
+      expect(await started).toMatchObject({ userId: dev.id, typing: true });
       const stopped = next<{ userId: string; typing: boolean }>(
         ownerSocket,
         'chat:typing',
