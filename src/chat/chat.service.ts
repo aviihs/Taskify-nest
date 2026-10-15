@@ -21,19 +21,26 @@ import {
   WorkspaceRecord,
 } from '../workspaces/schemas/workspace.schema';
 import {
+  CHAT_CONVERSATION_CREATED,
   CHAT_MESSAGE_CREATED,
+  CHAT_MESSAGES_DELETED,
   CHAT_READ,
+  ChatConversationCreatedEvent,
   ChatMessageCreatedEvent,
+  ChatMessagesDeletedEvent,
   ChatMessageView,
   ChatReadEvent,
   ChatUser,
 } from './chat-events';
 import {
   ContactsQueryDto,
+  CreateGroupDto,
+  DeleteMessagesDto,
   ListConversationsQueryDto,
   ListMessagesQueryDto,
   OpenDirectConversationDto,
   SendMessageDto,
+  WorkspaceFilterDto,
 } from './dtos/chat.dto';
 import { PresenceService } from './presence.service';
 import { ChatMessage, ChatMessageRecord } from './schemas/chat-message.schema';
@@ -50,6 +57,8 @@ const CHAT_USER_FIELDS = {
   avatar: 1,
 } as const;
 const PREVIEW_LENGTH = 140;
+/** Inbox preview of a last message deleted for everyone. */
+export const DELETED_PREVIEW = 'Message deleted';
 const MAX_CONTACTS = 200;
 
 interface ChatUserDoc {
@@ -64,7 +73,15 @@ export interface ConversationView {
   _id: string;
   type: ConversationType;
   workspace: { _id: string; name: string };
+  /**
+   * DM: the other person. Group: a stand-in carrying the group's name (id is
+   * the conversation's), so DM-only clients still have something to show.
+   */
   peer: ChatUser & { online: boolean };
+  /** Group name; null for DMs. */
+  name: string | null;
+  /** Everyone else in the chat, with presence. */
+  members: Array<ChatUser & { online: boolean }>;
   lastMessage: {
     _id: string;
     senderId: string;
@@ -76,10 +93,10 @@ export interface ConversationView {
   lastSeq: number;
   /** How far I have read. */
   lastReadSeq: number;
-  /** How far the other person has read — drives "Read" receipts. */
+  /** How far the other person (in a group: everyone else) has read — drives "Read" receipts. */
   peerLastReadSeq: number;
   unreadCount: number;
-  /** False when the other person left the workspace: history stays, sending stops. */
+  /** DM: false when the other person left the workspace: history stays, sending stops. */
   canSend: boolean;
 }
 
@@ -158,7 +175,21 @@ export class ChatService {
   /** Other participants of a conversation the user may access (for typing fan-out). */
   async peersOf(userId: string, conversationId: string): Promise<string[]> {
     const conversation = await this.authorize(userId, conversationId);
-    return this.memberIds(conversation).filter((id) => id !== userId);
+    return (await this.audience(conversation)).filter((id) => id !== userId);
+  }
+
+  /**
+   * Who receives a conversation's live events: DM participants, or the group
+   * members still active in the workspace (people who left get nothing).
+   */
+  private async audience(conversation: ConversationRecord): Promise<string[]> {
+    const ids = this.memberIds(conversation);
+    if (conversation.type !== ConversationType.GROUP) return ids;
+    const active = await this.workspaceAccess.activeMembers(
+      conversation.workspace,
+      ids,
+    );
+    return active.map((m) => String(m.user));
   }
 
   // ---------------------------------------------------------------------------
@@ -216,6 +247,52 @@ export class ChatService {
     return view;
   }
 
+  /** A named chat with two or more other members of one workspace. */
+  async createGroup(
+    userId: string,
+    dto: CreateGroupDto,
+  ): Promise<ConversationView> {
+    await this.workspaceAccess.resolve(userId, dto.workspaceId);
+    const others = [...new Set(dto.memberIds)].filter((id) => id !== userId);
+    if (others.length < 2) {
+      throw new BadRequestException('A group needs at least two other members');
+    }
+    const active = await this.workspaceAccess.activeMembers(
+      dto.workspaceId,
+      others,
+    );
+    if (active.length !== others.length) {
+      throw new NotFoundException('User not found in this workspace');
+    }
+    const name = normalizeMessageBody(dto.name).replace(/\s+/g, ' ');
+    if (!name) throw new BadRequestException('Group name cannot be empty');
+
+    const now = new Date();
+    const created = await this.conversationModel.create({
+      workspace: toObjectId(dto.workspaceId),
+      type: ConversationType.GROUP,
+      directKey: `group:${new Types.ObjectId().toString()}`,
+      name,
+      createdBy: toObjectId(userId),
+      members: [userId, ...others].map((id) => ({
+        user: toObjectId(id),
+        lastReadSeq: 0,
+      })),
+      lastSeq: 0,
+      lastMessage: null,
+      // In everyone's inbox right away, before the first message.
+      lastMessageAt: now,
+    });
+    const conversation = created.toObject() as ConversationRecord;
+    const event: ChatConversationCreatedEvent = {
+      memberIds: this.memberIds(conversation),
+      conversationId: String(conversation._id),
+    };
+    this.emitter.emit(CHAT_CONVERSATION_CREATED, event);
+    const [view] = await this.toViews(userId, [conversation]);
+    return view;
+  }
+
   async get(userId: string, conversationId: string): Promise<ConversationView> {
     const conversation = await this.authorize(userId, conversationId);
     const [view] = await this.toViews(userId, [conversation]);
@@ -227,11 +304,11 @@ export class ChatService {
     userId: string,
     query: ListConversationsQueryDto,
   ): Promise<{ items: ConversationView[]; hasMore: boolean }> {
-    const workspaceIds = await this.liveWorkspaceIds(userId);
+    const workspaceIds = await this.liveWorkspaceIds(userId, query);
     if (!workspaceIds.length) return { items: [], hasMore: false };
 
     const filter: FilterQuery<Conversation> = {
-      'members.user': toObjectId(userId),
+      members: this.visibleTo(userId),
       workspace: { $in: workspaceIds },
       lastMessageAt: query.before ? { $lt: query.before } : { $ne: null },
     };
@@ -249,12 +326,15 @@ export class ChatService {
   }
 
   /** Total unread messages across every conversation I can still access. */
-  async unreadTotal(userId: string): Promise<{ count: number }> {
-    const workspaceIds = await this.liveWorkspaceIds(userId);
+  async unreadTotal(
+    userId: string,
+    query: WorkspaceFilterDto = {},
+  ): Promise<{ count: number }> {
+    const workspaceIds = await this.liveWorkspaceIds(userId, query);
     if (!workspaceIds.length) return { count: 0 };
     const rows = await this.conversationModel
       .find({
-        'members.user': toObjectId(userId),
+        members: this.visibleTo(userId),
         workspace: { $in: workspaceIds },
         lastMessageAt: { $ne: null },
       })
@@ -286,11 +366,19 @@ export class ChatService {
     }
 
     const forward = query.after !== undefined;
+    // Nothing from before I cleared the chat, nor what I deleted for myself.
+    const seq: { $gt: number; $lt?: number } = {
+      $gt: Math.max(
+        this.memberOf(conversation, userId)?.clearedSeq ?? 0,
+        query.after ?? 0,
+      ),
+    };
+    if (query.before !== undefined) seq.$lt = query.before;
     const filter: FilterQuery<ChatMessage> = {
       conversation: conversation._id,
+      seq,
+      hiddenFor: { $ne: toObjectId(userId) },
     };
-    if (forward) filter.seq = { $gt: query.after };
-    else if (query.before !== undefined) filter.seq = { $lt: query.before };
 
     const rows = await this.messageModel
       .find(filter)
@@ -324,16 +412,21 @@ export class ChatService {
     const body = normalizeMessageBody(dto.body);
     if (!body) throw new BadRequestException('Message cannot be empty');
 
-    const memberIds = this.memberIds(conversation);
-    const peers = memberIds.filter((id) => id !== userId);
-    const activePeers = await this.workspaceAccess.activeMembers(
-      conversation.workspace,
-      peers,
-    );
-    if (activePeers.length !== peers.length) {
-      throw new ForbiddenException(
-        'This person is no longer a member of the workspace',
+    const isGroup = conversation.type === ConversationType.GROUP;
+    const memberIds = await this.audience(conversation);
+    if (!isGroup) {
+      const peers = memberIds.filter((id) => id !== userId);
+      const activePeers = await this.workspaceAccess.activeMembers(
+        conversation.workspace,
+        peers,
       );
+      if (activePeers.length !== peers.length) {
+        throw new ForbiddenException(
+          'This person is no longer a member of the workspace',
+        );
+      }
+    } else if (memberIds.length < 2) {
+      throw new ForbiddenException('Everyone else has left this group');
     }
 
     // Server-assigned order: an atomic counter per conversation.
@@ -359,6 +452,7 @@ export class ChatService {
           body,
           seq,
           clientId: dto.clientId ?? null,
+          forwarded: dto.forwarded === true,
         })
       ).toObject() as ChatMessageRecord;
     } catch (error) {
@@ -392,6 +486,13 @@ export class ChatService {
         .exec(),
       // Sending means I have seen everything up to my own message.
       this.advanceRead(conversation._id, sender, seq),
+      // A new message brings a deleted chat back to everyone's inbox.
+      this.conversationModel
+        .updateOne(
+          { _id: conversation._id, 'members.hidden': true },
+          { $set: { 'members.$[].hidden': false } },
+        )
+        .exec(),
     ]);
 
     const view = this.toMessageView(message, userId);
@@ -403,6 +504,7 @@ export class ChatService {
     const event: ChatMessageCreatedEvent = {
       memberIds,
       sender: this.toChatUser(senderDoc, userId),
+      conversationName: isGroup ? conversation.name : null,
       message: { ...view, clientId: dto.clientId ?? null },
     };
     this.emitter.emit(CHAT_MESSAGE_CREATED, event);
@@ -425,7 +527,7 @@ export class ChatService {
     if (target > before) {
       await this.advanceRead(conversation._id, me, target);
       const event: ChatReadEvent = {
-        memberIds: this.memberIds(conversation),
+        memberIds: await this.audience(conversation),
         conversationId: String(conversation._id),
         userId,
         lastReadSeq: target,
@@ -445,6 +547,99 @@ export class ChatService {
       lastReadSeq,
       unreadCount: unread.get(String(conversation._id)) ?? 0,
     };
+  }
+
+  /**
+   * Deletes messages. For everyone: only the caller's own messages; the body
+   * is erased and a placeholder stays for both sides. For me: hidden from my
+   * history only.
+   */
+  async deleteMessages(
+    userId: string,
+    conversationId: string,
+    dto: DeleteMessagesDto,
+  ): Promise<{ messageIds: string[]; forEveryone: boolean }> {
+    const conversation = await this.authorize(userId, conversationId);
+    const me = toObjectId(userId);
+    const forEveryone = dto.forEveryone === true;
+    const ids = [...new Set(dto.messageIds)].map(toObjectId);
+    const found = await this.messageModel
+      .find({ _id: { $in: ids }, conversation: conversation._id })
+      .select('sender deletedAt')
+      .lean<ChatMessageRecord[]>()
+      .exec();
+    if (found.length !== ids.length) {
+      throw new NotFoundException('Message not found');
+    }
+
+    if (forEveryone) {
+      if (found.some((m) => !m.sender.equals(me))) {
+        throw new ForbiddenException(
+          'You can only delete your own messages for everyone',
+        );
+      }
+      await this.messageModel
+        .updateMany(
+          { _id: { $in: ids }, deletedAt: null },
+          { $set: { deletedAt: new Date(), body: '' } },
+        )
+        .exec();
+      const last = conversation.lastMessage;
+      if (last && ids.some((id) => id.equals(last.id))) {
+        await this.conversationModel
+          .updateOne(
+            { _id: conversation._id, 'lastMessage.id': last.id },
+            { $set: { 'lastMessage.preview': DELETED_PREVIEW } },
+          )
+          .exec();
+      }
+    } else {
+      await this.messageModel
+        .updateMany({ _id: { $in: ids } }, { $addToSet: { hiddenFor: me } })
+        .exec();
+    }
+
+    const messageIds = ids.map(String);
+    const event: ChatMessagesDeletedEvent = {
+      memberIds: forEveryone ? await this.audience(conversation) : [userId],
+      conversationId: String(conversation._id),
+      messageIds,
+      forEveryone,
+      cleared: false,
+    };
+    this.emitter.emit(CHAT_MESSAGES_DELETED, event);
+    return { messageIds, forEveryone };
+  }
+
+  /**
+   * "Delete chat": clears the history for me and drops the chat from my
+   * inbox. The other person keeps theirs; a new message brings it back.
+   */
+  async clear(userId: string, conversationId: string): Promise<void> {
+    const conversation = await this.authorize(userId, conversationId);
+    const me = toObjectId(userId);
+    const { lastSeq } = conversation;
+    await this.conversationModel
+      .updateOne(
+        { _id: conversation._id },
+        {
+          $max: {
+            'members.$[me].clearedSeq': lastSeq,
+            'members.$[me].lastReadSeq': lastSeq,
+          },
+          $set: { 'members.$[me].hidden': true },
+        },
+        { arrayFilters: [{ 'me.user': me }] },
+      )
+      .exec();
+    const event: ChatMessagesDeletedEvent = {
+      memberIds: [userId],
+      conversationId: String(conversation._id),
+      messageIds: [],
+      forEveryone: false,
+      cleared: true,
+    };
+    this.emitter.emit(CHAT_MESSAGES_DELETED, event);
   }
 
   // ---------------------------------------------------------------------------
@@ -528,16 +723,17 @@ export class ChatService {
     conversations: ConversationRecord[],
   ): Promise<ConversationView[]> {
     if (!conversations.length) return [];
-    const peerIds = conversations.map(
-      (c) => this.memberIds(c).find((id) => id !== userId) ?? userId,
-    );
+    const othersOf = (c: ConversationRecord) =>
+      this.memberIds(c).filter((id) => id !== userId);
+    const peerIds = conversations.map((c) => othersOf(c)[0] ?? userId);
+    const everyone = [...new Set(conversations.flatMap(othersOf))];
     const workspaceIds = [
       ...new Set(conversations.map((c) => String(c.workspace))),
     ];
 
     const [users, workspaces, online, unread, activePeers] = await Promise.all([
       this.userModel
-        .find({ _id: { $in: peerIds.map(toObjectId) } })
+        .find({ _id: { $in: everyone.map(toObjectId) } })
         .select(CHAT_USER_FIELDS)
         .lean<ChatUserDoc[]>()
         .exec(),
@@ -546,12 +742,12 @@ export class ChatService {
         .select('name')
         .lean<WorkspaceRecord[]>()
         .exec(),
-      this.presence.onlineUserIds(peerIds),
+      this.presence.onlineUserIds(everyone),
       this.unreadCounts(userId, conversations),
       this.memberModel
         .find({
           workspace: { $in: workspaceIds.map(toObjectId) },
-          user: { $in: peerIds.map(toObjectId) },
+          user: { $in: everyone.map(toObjectId) },
           status: MemberStatus.ACTIVE,
         })
         .select('workspace user')
@@ -564,9 +760,19 @@ export class ChatService {
       activePeers.map((m) => `${m.workspace}:${m.user}`),
     );
 
+    const withPresence = (id: string) => ({
+      ...this.toChatUser(userById.get(id) ?? null, id),
+      online: online.has(id),
+    });
+
     return conversations.map((c, i) => {
       const peerId = peerIds[i];
       const id = String(c._id);
+      const isGroup = c.type === ConversationType.GROUP;
+      const others = othersOf(c);
+      const stillHere = others.filter((o) =>
+        activeKeys.has(`${c.workspace}:${o}`),
+      );
       return {
         _id: id,
         type: c.type,
@@ -574,10 +780,18 @@ export class ChatService {
           _id: String(c.workspace),
           name: workspaceById.get(String(c.workspace))?.name ?? '',
         },
-        peer: {
-          ...this.toChatUser(userById.get(peerId) ?? null, peerId),
-          online: online.has(peerId),
-        },
+        peer: isGroup
+          ? {
+              _id: id,
+              firstName: c.name ?? 'Group',
+              lastName: '',
+              userName: '',
+              avatar: null,
+              online: false,
+            }
+          : withPresence(peerId),
+        name: isGroup ? c.name : null,
+        members: (isGroup ? stillHere : others).map(withPresence),
         lastMessage: c.lastMessage
           ? {
               _id: String(c.lastMessage.id),
@@ -590,9 +804,13 @@ export class ChatService {
         lastMessageAt: c.lastMessageAt,
         lastSeq: c.lastSeq,
         lastReadSeq: this.readSeqOf(c, userId),
-        peerLastReadSeq: this.readSeqOf(c, peerId),
+        peerLastReadSeq: isGroup
+          ? Math.min(...stillHere.map((o) => this.readSeqOf(c, o)), c.lastSeq)
+          : this.readSeqOf(c, peerId),
         unreadCount: unread.get(id) ?? 0,
-        canSend: activeKeys.has(`${c.workspace}:${peerId}`),
+        canSend: isGroup
+          ? stillHere.length > 0
+          : activeKeys.has(`${c.workspace}:${peerId}`),
       };
     });
   }
@@ -666,10 +884,17 @@ export class ChatService {
     return this.toMessageView(existing, userId);
   }
 
-  private async liveWorkspaceIds(userId: string): Promise<Types.ObjectId[]> {
-    return (await this.workspaceAccess.memberships(userId)).map(
+  /** Workspaces I'm still in; narrowed to one when the client asks. */
+  private async liveWorkspaceIds(
+    userId: string,
+    filter: WorkspaceFilterDto = {},
+  ): Promise<Types.ObjectId[]> {
+    const ids = (await this.workspaceAccess.memberships(userId)).map(
       (m) => m.workspaceId,
     );
+    return filter.workspaceId
+      ? ids.filter((id) => String(id) === filter.workspaceId)
+      : ids;
   }
 
   private async isLiveMember(
@@ -688,6 +913,18 @@ export class ChatService {
     return conversation.members.map((m) => String(m.user));
   }
 
+  private memberOf(
+    conversation: Pick<ConversationRecord, 'members'>,
+    userId: string,
+  ) {
+    return conversation.members.find((m) => String(m.user) === userId);
+  }
+
+  /** Matches conversations I'm in and haven't deleted. */
+  private visibleTo(userId: string) {
+    return { $elemMatch: { user: toObjectId(userId), hidden: { $ne: true } } };
+  }
+
   private readSeqOf(
     conversation: Pick<ConversationRecord, 'members'>,
     userId: string,
@@ -703,13 +940,16 @@ export class ChatService {
     viewerId: string,
   ): ChatMessageView {
     const senderId = String(m.sender);
+    const deleted = m.deletedAt != null;
     return {
       _id: String(m._id),
       conversationId: String(m.conversation),
       senderId,
-      body: m.body,
+      body: deleted ? '' : m.body,
       seq: m.seq,
       createdAt: m.createdAt,
+      forwarded: m.forwarded === true,
+      deleted,
       ...(senderId === viewerId && { clientId: m.clientId }),
     };
   }

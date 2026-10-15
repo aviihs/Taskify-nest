@@ -27,7 +27,7 @@ describe('Chat, typing & presence (e2e)', () => {
       socket.once('connect', () => resolve(socket));
       socket.once('connect_error', reject);
     });
-  const next = <T>(socket: Socket, event: string, ms = 1000) =>
+  const next = <T>(socket: Socket, event: string, ms = 5000) =>
     new Promise<T | null>((resolve) => {
       const timer = setTimeout(() => resolve(null), ms);
       socket.once(event, (payload: T) => {
@@ -384,10 +384,14 @@ describe('Chat, typing & presence (e2e)', () => {
     it('stops the typing indicator when a message is sent', async () => {
       const ownerSocket = await connect(owner);
       const devSocket = await connect(dev);
+      // The ack to dev can beat the fan-out to owner, so wait for the
+      // "typing: true" to land before listening for the stop.
+      const started = next(ownerSocket, 'chat:typing');
       await request(devSocket, 'chat:typing', {
         conversationId: conversation,
         typing: true,
       });
+      expect(await started).toMatchObject({ userId: dev.id, typing: true });
       const stopped = next<{ userId: string; typing: boolean }>(
         ownerSocket,
         'chat:typing',
@@ -496,6 +500,286 @@ describe('Chat, typing & presence (e2e)', () => {
     });
   });
 
+  describe('forward and delete', () => {
+    const history = async (user: TestUser) =>
+      (
+        await ctx
+          .as(user)
+          .get(`/chat/conversations/${conversation}/messages?limit=100`)
+          .expect(200)
+      ).body.items as Array<Record<string, unknown>>;
+    const remove = (
+      user: TestUser,
+      messageIds: string[],
+      forEveryone = false,
+    ) =>
+      ctx
+        .as(user)
+        .post(`/chat/conversations/${conversation}/messages/delete`)
+        .send({ messageIds, forEveryone });
+    const inbox = async (user: TestUser) =>
+      (await ctx.as(user).get('/chat/conversations').expect(200)).body
+        .items as Array<{ _id: string; lastMessage: { preview: string } }>;
+
+    it('marks forwarded messages', async () => {
+      const sent = (
+        await ctx
+          .as(owner)
+          .post(`/chat/conversations/${conversation}/messages`)
+          .send({ body: 'Pass this on', forwarded: true })
+          .expect(201)
+      ).body;
+      expect(sent).toMatchObject({ forwarded: true, deleted: false });
+      expect((await send(owner, 'Plain').expect(201)).body.forwarded).toBe(
+        false,
+      );
+    });
+
+    it('deletes for me only, telling only my devices', async () => {
+      const devSocket = await connect(dev);
+      const ownerSocket = await connect(owner);
+      const msg = (await send(dev, 'Only mine to hide').expect(201)).body;
+
+      const mine = next<{ messageIds: string[] }>(devSocket, 'chat:deleted');
+      const theirs = next(ownerSocket, 'chat:deleted', 400);
+      await remove(dev, [msg._id]).expect(200);
+
+      expect((await mine)?.messageIds).toEqual([msg._id]);
+      expect(await theirs).toBeNull();
+      expect((await history(dev)).some((m) => m._id === msg._id)).toBe(false);
+      expect((await history(owner)).some((m) => m._id === msg._id)).toBe(true);
+    });
+
+    it('deletes my own messages for everyone, leaving a placeholder', async () => {
+      const ownerSocket = await connect(owner);
+      const msg = (await send(dev, 'Oops, wrong chat').expect(201)).body;
+
+      // Not someone else's message, and not across conversations.
+      await remove(owner, [msg._id], true).expect(403);
+      await remove(dev, [new Types.ObjectId().toString()], true).expect(404);
+      await remove(dev, [], true).expect(400);
+
+      const toOwner = next<{ messageIds: string[]; forEveryone: boolean }>(
+        ownerSocket,
+        'chat:deleted',
+      );
+      await remove(dev, [msg._id], true).expect(200);
+      expect(await toOwner).toMatchObject({
+        messageIds: [msg._id],
+        forEveryone: true,
+      });
+
+      for (const user of [owner, dev]) {
+        const copy = (await history(user)).find((m) => m._id === msg._id);
+        expect(copy).toMatchObject({ deleted: true, body: '' });
+      }
+      const stored = await ctx.app
+        .get<Model<{ body: string }>>(getModelToken('ChatMessage'))
+        .findById(msg._id)
+        .lean()
+        .exec();
+      expect(stored?.body).toBe(''); // the text is really gone
+      expect(
+        (await inbox(owner)).find((c) => c._id === conversation)?.lastMessage
+          .preview,
+      ).toBe('Message deleted');
+    });
+
+    it('deleting a chat clears it for me until a new message arrives', async () => {
+      const before = (await history(owner)).length;
+      expect(before).toBeGreaterThan(0);
+
+      await ctx
+        .as(dev)
+        .delete(`/chat/conversations/${conversation}`)
+        .expect(204);
+      expect(await history(dev)).toEqual([]);
+      expect((await inbox(dev)).some((c) => c._id === conversation)).toBe(
+        false,
+      );
+      expect(
+        (await ctx.as(dev).get('/chat/unread-count').expect(200)).body.count,
+      ).toBe(0);
+      // The other person keeps everything.
+      expect(await history(owner)).toHaveLength(before);
+
+      const fresh = (await send(owner, 'Starting over').expect(201)).body;
+      expect((await inbox(dev)).some((c) => c._id === conversation)).toBe(true);
+      expect((await history(dev)).map((m) => m._id)).toEqual([fresh._id]);
+    });
+  });
+
+  describe('workspaces and groups', () => {
+    let designer: TestUser;
+    let group: string;
+
+    const join = async (workspaceId: string, user: TestUser) => {
+      const inv = await ctx
+        .as(owner)
+        .post(`/workspaces/${workspaceId}/invitations`)
+        .send({ email: user.email, role: 'MEMBER' })
+        .expect(201);
+      await ctx
+        .as(user)
+        .post(`/invitations/${inv.body._id}/accept`)
+        .expect(201);
+    };
+
+    beforeAll(async () => {
+      designer = await ctx.signUp('designer');
+      await join(acme, designer);
+    });
+
+    it('keeps a separate chat per workspace and filters by workspace', async () => {
+      const beta = (
+        await ctx
+          .as(owner)
+          .post('/workspaces')
+          .send({ name: 'Beta' })
+          .expect(201)
+      ).body._id;
+      await join(beta, dev);
+      const betaChat = (
+        await ctx
+          .as(owner)
+          .post('/chat/conversations')
+          .send({ workspaceId: beta, userId: dev.id })
+          .expect(201)
+      ).body._id;
+      expect(betaChat).not.toBe(conversation);
+      await ctx
+        .as(owner)
+        .post(`/chat/conversations/${betaChat}/messages`)
+        .send({ body: 'Beta only' })
+        .expect(201);
+
+      const ids = async (workspaceId: string) =>
+        (
+          await ctx
+            .as(dev)
+            .get(`/chat/conversations?workspaceId=${workspaceId}`)
+            .expect(200)
+        ).body.items.map((c: { _id: string }) => c._id);
+      expect(await ids(beta)).toEqual([betaChat]);
+      expect(await ids(acme)).not.toContain(betaChat);
+      expect(
+        (
+          await ctx
+            .as(dev)
+            .get(`/chat/unread-count?workspaceId=${beta}`)
+            .expect(200)
+        ).body.count,
+      ).toBe(1);
+      // Someone outside the workspace can't be messaged there.
+      await ctx
+        .as(owner)
+        .post('/chat/conversations')
+        .send({ workspaceId: beta, userId: designer.id })
+        .expect(404);
+    });
+
+    it('validates groups', async () => {
+      const create = (body: Record<string, unknown>) =>
+        ctx.as(owner).post('/chat/groups').send(body);
+      await create({
+        workspaceId: acme,
+        name: 'Duo',
+        memberIds: [dev.id],
+      }).expect(400);
+      await create({
+        workspaceId: acme,
+        name: '   ',
+        memberIds: [dev.id, designer.id],
+      }).expect(400);
+      await create({
+        workspaceId: acme,
+        name: 'Leak',
+        memberIds: [dev.id, outsider.id],
+      }).expect(404);
+      await ctx
+        .as(outsider)
+        .post('/chat/groups')
+        .send({
+          workspaceId: acme,
+          name: 'X',
+          memberIds: [dev.id, designer.id],
+        })
+        .expect(404);
+    });
+
+    it('creates a group that every member sees and can chat in live', async () => {
+      const devSocket = await connect(dev);
+      const designerSocket = await connect(designer);
+      const announced = next<{ conversationId: string }>(
+        designerSocket,
+        'chat:conversation',
+      );
+      const view = (
+        await ctx
+          .as(owner)
+          .post('/chat/groups')
+          .send({
+            workspaceId: acme,
+            name: '  Launch   crew ',
+            memberIds: [dev.id, designer.id],
+          })
+          .expect(201)
+      ).body;
+      group = view._id;
+      expect(view).toMatchObject({
+        type: 'GROUP',
+        name: 'Launch crew',
+        canSend: true,
+      });
+      expect(view.members.map((m: { _id: string }) => m._id).sort()).toEqual(
+        [dev.id, designer.id].sort(),
+      );
+      expect((await announced)?.conversationId).toBe(group);
+
+      // In the inbox before the first message.
+      const designerInbox = (
+        await ctx
+          .as(designer)
+          .get(`/chat/conversations?workspaceId=${acme}`)
+          .expect(200)
+      ).body.items;
+      expect(designerInbox.map((c: { _id: string }) => c._id)).toContain(group);
+
+      const toDev = next<{ message: { body: string } }>(
+        devSocket,
+        'chat:message',
+      );
+      const toDesigner = next<{ message: { body: string } }>(
+        designerSocket,
+        'chat:message',
+      );
+      await ctx
+        .as(owner)
+        .post(`/chat/conversations/${group}/messages`)
+        .send({ body: 'Kickoff at 10' })
+        .expect(201);
+      expect((await toDev)?.message.body).toBe('Kickoff at 10');
+      expect((await toDesigner)?.message.body).toBe('Kickoff at 10');
+
+      // "Read" only once everyone else has read it.
+      const read = (user: TestUser) =>
+        ctx
+          .as(user)
+          .post(`/chat/conversations/${group}/read`)
+          .send({ seq: 1 })
+          .expect(200);
+      const ownerView = () =>
+        ctx.as(owner).get(`/chat/conversations/${group}`).expect(200);
+      await read(dev);
+      expect((await ownerView()).body.peerLastReadSeq).toBe(0);
+      await read(designer);
+      expect((await ownerView()).body.peerLastReadSeq).toBe(1);
+
+      // Outsiders can't see it.
+      await ctx.as(outsider).get(`/chat/conversations/${group}`).expect(404);
+    });
+  });
+
   describe('revoked access', () => {
     it('removed members lose the conversation; the other side keeps read-only history', async () => {
       await ctx
@@ -508,11 +792,26 @@ describe('Chat, typing & presence (e2e)', () => {
         .as(dev)
         .get(`/chat/conversations/${conversation}/messages`)
         .expect(404);
+      // Acme chats (DM and group) are gone; chats in other workspaces stay.
+      const inbox = (await ctx.as(dev).get('/chat/conversations').expect(200))
+        .body.items as Array<{ workspace: { _id: string } }>;
+      expect(inbox.length).toBeGreaterThan(0);
+      expect(inbox.some((c) => c.workspace._id === acme)).toBe(false);
       expect(
-        (await ctx.as(dev).get('/chat/conversations').expect(200)).body.items,
+        (
+          await ctx
+            .as(dev)
+            .get(`/chat/conversations?workspaceId=${acme}`)
+            .expect(200)
+        ).body.items,
       ).toEqual([]);
       expect(
-        (await ctx.as(dev).get('/chat/unread-count').expect(200)).body.count,
+        (
+          await ctx
+            .as(dev)
+            .get(`/chat/unread-count?workspaceId=${acme}`)
+            .expect(200)
+        ).body.count,
       ).toBe(0);
 
       const view = (

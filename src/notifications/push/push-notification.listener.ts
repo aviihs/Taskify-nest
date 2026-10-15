@@ -15,6 +15,7 @@ const TITLES: Record<NotificationType, string> = {
   [NotificationType.MENTIONED]: 'You were mentioned',
   [NotificationType.WORKSPACE_INVITATION]: 'Workspace invitation',
   [NotificationType.PROJECT_MEMBER_ADDED]: 'Added to project',
+  [NotificationType.NOTE_REMINDER]: 'Note reminder',
 };
 
 /** Mirrors every in-app notification to the recipient's phones. */

@@ -10,6 +10,7 @@ export enum NotificationType {
   MENTIONED = 'MENTIONED',
   WORKSPACE_INVITATION = 'WORKSPACE_INVITATION',
   PROJECT_MEMBER_ADDED = 'PROJECT_MEMBER_ADDED',
+  NOTE_REMINDER = 'NOTE_REMINDER',
 }
 
 @Schema({ timestamps: true, collection: 'notifications' })

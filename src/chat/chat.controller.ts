@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -17,12 +18,15 @@ import { AuthUser } from '../common/types/auth-user';
 import { ChatService } from './chat.service';
 import {
   ContactsQueryDto,
+  CreateGroupDto,
+  DeleteMessagesDto,
   ListConversationsQueryDto,
   ListMessagesQueryDto,
   MarkReadDto,
   OpenDirectConversationDto,
   SendMessageDto,
   UpdatePresenceDto,
+  WorkspaceFilterDto,
 } from './dtos/chat.dto';
 import { PresenceService } from './presence.service';
 
@@ -51,6 +55,14 @@ export class ChatController {
   })
   open(@CurrentUser() user: AuthUser, @Body() dto: OpenDirectConversationDto) {
     return this.chat.openDirect(user.id, dto);
+  }
+
+  @Post('groups')
+  @ApiOperation({
+    summary: 'Create a group chat with two or more workspace members',
+  })
+  createGroup(@CurrentUser() user: AuthUser, @Body() dto: CreateGroupDto) {
+    return this.chat.createGroup(user.id, dto);
   }
 
   @Get('conversations/:id')
@@ -84,6 +96,32 @@ export class ChatController {
     return this.chat.send(user.id, id, dto);
   }
 
+  @Delete('conversations/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary:
+      'Delete chat: clear its history and remove it from my inbox (only for me)',
+  })
+  async clear(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ): Promise<void> {
+    await this.chat.clear(user.id, id);
+  }
+
+  @Post('conversations/:id/messages/delete')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete messages for me, or my own messages for everyone',
+  })
+  deleteMessages(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: DeleteMessagesDto,
+  ) {
+    return this.chat.deleteMessages(user.id, id, dto);
+  }
+
   @Post('conversations/:id/read')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark messages up to seq as read' })
@@ -96,9 +134,15 @@ export class ChatController {
   }
 
   @Get('unread-count')
-  @ApiOperation({ summary: 'Unread messages across all my conversations' })
-  unreadCount(@CurrentUser() user: AuthUser) {
-    return this.chat.unreadTotal(user.id);
+  @ApiOperation({
+    summary:
+      'Unread messages across my conversations (optionally one workspace)',
+  })
+  unreadCount(
+    @CurrentUser() user: AuthUser,
+    @Query() query: WorkspaceFilterDto,
+  ) {
+    return this.chat.unreadTotal(user.id, query);
   }
 
   @Get('contacts')

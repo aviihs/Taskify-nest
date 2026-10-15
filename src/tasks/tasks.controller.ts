@@ -1,3 +1,4 @@
+import { TimezoneQueryDto } from '../common/dtos/timezone-query.dto';
 import {
   Body,
   Controller,
@@ -38,6 +39,15 @@ export class TasksController {
   })
   listMine(@CurrentUser() user: AuthUser, @Query() query: MyTasksQueryDto) {
     return this.myTasks.list(user.id, query);
+  }
+
+  @Get('users/me/dashboard')
+  @ApiOperation({
+    summary:
+      'Personal dashboard: counts of my tasks across all my workspaces (local day/week via tzOffset)',
+  })
+  myDashboard(@CurrentUser() user: AuthUser, @Query() query: TimezoneQueryDto) {
+    return this.myTasks.summary(user.id, query.tzOffset);
   }
 
   @Get('projects/:projectId/tasks')

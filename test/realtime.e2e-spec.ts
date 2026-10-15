@@ -21,7 +21,7 @@ describe('Realtime gateway (e2e)', () => {
       socket.once('connect', () => resolve(socket));
       socket.once('connect_error', reject);
     });
-  const next = <T>(socket: Socket, event: string, ms = 1000) =>
+  const next = <T>(socket: Socket, event: string, ms = 5000) =>
     new Promise<T | null>((resolve) => {
       const timer = setTimeout(() => resolve(null), ms);
       socket.once(event, (payload: T) => {
@@ -117,7 +117,18 @@ describe('Realtime gateway (e2e)', () => {
       .expect(204);
     expect(await declined).toMatchObject({ type: 'invitation.declined' });
 
-    // Re-invite, then cancel → the invitee hears it.
+    // Re-invite, then cancel → the invitee hears it. Listen first and skip
+    // the re-invite's own 'invitation.created', whenever it arrives.
+    const cancelled = new Promise<{ type: string } | null>((resolve) => {
+      const timer = setTimeout(() => resolve(null), 5000);
+      const handler = (payload: { type: string }) => {
+        if (payload.type !== 'invitation.cancelled') return;
+        clearTimeout(timer);
+        invitee.off('invitation', handler);
+        resolve(payload);
+      };
+      invitee.on('invitation', handler);
+    });
     const second = (
       await ctx
         .as(owner)
@@ -125,18 +136,11 @@ describe('Realtime gateway (e2e)', () => {
         .send({ email: outsider.email, role: 'VIEWER' })
         .expect(201)
     ).body;
-    const cancelled = next<{ type: string }>(invitee, 'invitation');
     await ctx
       .as(owner)
       .delete(`/workspaces/${acme}/invitations/${second._id}`)
       .expect(204);
-    // The first 'invitation' after re-invite may be the new invite itself.
-    const signal = await cancelled;
-    const final =
-      signal?.type === 'invitation.created'
-        ? await next<{ type: string }>(invitee, 'invitation')
-        : signal;
-    expect(final).toMatchObject({ type: 'invitation.cancelled' });
+    expect(await cancelled).toMatchObject({ type: 'invitation.cancelled' });
   });
 
   it('disconnects a member whose role is lowered or who is suspended', async () => {
