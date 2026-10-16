@@ -46,6 +46,12 @@ export class NotificationsController {
     return this.notifications.unreadCount(user.id);
   }
 
+  @Get('unread-by-workspace')
+  @ApiOperation({ summary: 'Unread notifications per workspace' })
+  unreadByWorkspace(@CurrentUser() user: AuthUser) {
+    return this.notifications.unreadByWorkspace(user.id);
+  }
+
   @Patch('read-all')
   @ApiOperation({ summary: 'Mark all my notifications as read' })
   markAllRead(@CurrentUser() user: AuthUser) {

@@ -66,10 +66,19 @@ describe('Comments, notifications, attachments, activity & dashboard (e2e)', () 
         link: `/tasks/${task}`,
       });
 
-      expect(
-        (await ctx.as(dev).get('/notifications/unread-count').expect(200)).body
-          .count,
-      ).toBeGreaterThan(0);
+      const unread = (
+        await ctx.as(dev).get('/notifications/unread-count').expect(200)
+      ).body.count;
+      expect(unread).toBeGreaterThan(0);
+      // Workspace-less ones (invitations) aren't counted per workspace.
+      const byWorkspace = (
+        await ctx.as(dev).get('/notifications/unread-by-workspace').expect(200)
+      ).body;
+      expect(byWorkspace).toEqual([
+        { workspaceId: acme, count: expect.any(Number) },
+      ]);
+      expect(byWorkspace[0].count).toBeGreaterThan(0);
+      expect(byWorkspace[0].count).toBeLessThanOrEqual(unread);
       await ctx
         .as(owner)
         .patch(`/notifications/${assigned._id}/read`)
@@ -84,6 +93,14 @@ describe('Comments, notifications, attachments, activity & dashboard (e2e)', () 
         (await ctx.as(dev).get('/notifications/unread-count').expect(200)).body
           .count,
       ).toBe(0);
+      expect(
+        (
+          await ctx
+            .as(dev)
+            .get('/notifications/unread-by-workspace')
+            .expect(200)
+        ).body,
+      ).toEqual([]);
     });
 
     it('notifies the creator when the status changes', async () => {

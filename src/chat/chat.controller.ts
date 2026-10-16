@@ -145,6 +145,12 @@ export class ChatController {
     return this.chat.unreadTotal(user.id, query);
   }
 
+  @Get('unread-by-workspace')
+  @ApiOperation({ summary: 'Unread messages per workspace' })
+  unreadByWorkspace(@CurrentUser() user: AuthUser) {
+    return this.chat.unreadByWorkspace(user.id);
+  }
+
   @Get('contacts')
   @ApiOperation({ summary: 'Workspace members I can message, with presence' })
   contacts(@CurrentUser() user: AuthUser, @Query() query: ContactsQueryDto) {
