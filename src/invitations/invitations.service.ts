@@ -30,6 +30,7 @@ import {
   InvitationStatus,
   WorkspaceInvitation,
 } from './schemas/invitation.schema';
+import { displayName } from '../users/display-name';
 
 export const INVITATION_TTL_DAYS = 7;
 const INVITEE_SEARCH_LIMIT = 5;
@@ -114,9 +115,7 @@ export class InvitationsService {
       email: invitation.email,
       role: invitation.role,
       workspaceName: access.workspace.name,
-      inviterName: inviter
-        ? `${inviter.firstName} ${inviter.lastName}`
-        : 'A teammate',
+      inviterName: inviter ? displayName(inviter, 'A teammate') : 'A teammate',
       inviteeUserId: invitee ? String(invitee._id) : null,
     });
     return invitation;

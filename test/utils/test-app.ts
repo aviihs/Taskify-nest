@@ -134,3 +134,23 @@ export async function createTestApp({
     close: () => app.close(),
   };
 }
+
+/**
+ * Retries [check] until it passes or [timeoutMs] runs out, then rethrows its
+ * last failure. For effects of async event listeners (notifications,
+ * activity), which land after the HTTP response that triggered them.
+ */
+export async function eventually<T>(
+  check: () => Promise<T>,
+  timeoutMs = 3000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      return await check();
+    } catch (error) {
+      if (Date.now() >= deadline) throw error;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+}
