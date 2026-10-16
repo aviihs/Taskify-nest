@@ -267,6 +267,15 @@ describe('Chat, typing & presence (e2e)', () => {
       ).toBe(0);
     });
 
+    it('breaks unread counts down by workspace', async () => {
+      expect(
+        (await ctx.as(owner).get('/chat/unread-by-workspace').expect(200)).body,
+      ).toEqual([{ workspaceId: acme, count: 5 }]);
+      expect(
+        (await ctx.as(dev).get('/chat/unread-by-workspace').expect(200)).body,
+      ).toEqual([]);
+    });
+
     it('marks read monotonically, clamped to the last message', async () => {
       const read = (seq: number) =>
         ctx

@@ -330,21 +330,35 @@ export class ChatService {
     userId: string,
     query: WorkspaceFilterDto = {},
   ): Promise<{ count: number }> {
+    const byWorkspace = await this.unreadByWorkspace(userId, query);
+    return { count: byWorkspace.reduce((sum, w) => sum + w.count, 0) };
+  }
+
+  /** Unread messages per workspace; workspaces with none are left out. */
+  async unreadByWorkspace(
+    userId: string,
+    query: WorkspaceFilterDto = {},
+  ): Promise<Array<{ workspaceId: string; count: number }>> {
     const workspaceIds = await this.liveWorkspaceIds(userId, query);
-    if (!workspaceIds.length) return { count: 0 };
+    if (!workspaceIds.length) return [];
     const rows = await this.conversationModel
       .find({
         members: this.visibleTo(userId),
         workspace: { $in: workspaceIds },
         lastMessageAt: { $ne: null },
       })
-      .select('members lastSeq')
+      .select('workspace members lastSeq')
       .lean<ConversationRecord[]>()
       .exec();
     const unread = await this.unreadCounts(userId, rows);
-    let count = 0;
-    unread.forEach((n) => (count += n));
-    return { count };
+    const counts = new Map<string, number>();
+    for (const c of rows) {
+      const n = unread.get(String(c._id));
+      if (!n) continue;
+      const workspaceId = String(c.workspace);
+      counts.set(workspaceId, (counts.get(workspaceId) ?? 0) + n);
+    }
+    return [...counts].map(([workspaceId, count]) => ({ workspaceId, count }));
   }
 
   // ---------------------------------------------------------------------------

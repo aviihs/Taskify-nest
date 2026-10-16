@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
-import { FilterQuery, Model } from 'mongoose';
+import { FilterQuery, Model, Types } from 'mongoose';
 import {
   NOTIFICATION_CREATED,
   NotificationCreatedEvent,
@@ -104,6 +104,25 @@ export class NotificationsService {
       .countDocuments({ recipient: toObjectId(userId), readAt: null })
       .exec();
     return { count };
+  }
+
+  /** Unread per workspace; ones not tied to a workspace are left out. */
+  async unreadByWorkspace(
+    userId: string,
+  ): Promise<Array<{ workspaceId: string; count: number }>> {
+    const rows = await this.notificationModel
+      .aggregate<{ _id: Types.ObjectId; count: number }>([
+        {
+          $match: {
+            recipient: toObjectId(userId),
+            readAt: null,
+            workspace: { $ne: null },
+          },
+        },
+        { $group: { _id: '$workspace', count: { $sum: 1 } } },
+      ])
+      .exec();
+    return rows.map((r) => ({ workspaceId: String(r._id), count: r.count }));
   }
 
   async markRead(
