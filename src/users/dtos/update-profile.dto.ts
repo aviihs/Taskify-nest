@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
+  IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
@@ -15,7 +16,26 @@ import {
 } from '../phone';
 import { Gender } from './user.dto';
 
+const trim = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
+
 export class UpdateProfileDto {
+  @ApiPropertyOptional({ example: 'Shiva' })
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty({ message: 'First name cannot be empty' })
+  @MaxLength(50)
+  firstName?: string;
+
+  @ApiPropertyOptional({ example: 'Bhusal' })
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty({ message: 'Last name cannot be empty' })
+  @MaxLength(50)
+  lastName?: string;
+
   @ApiPropertyOptional({
     description:
       'An https URL, or the current value unchanged. Upload images with POST /users/me/avatar.',

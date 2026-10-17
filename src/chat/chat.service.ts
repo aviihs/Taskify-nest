@@ -49,6 +49,7 @@ import {
   ConversationRecord,
   ConversationType,
 } from './schemas/conversation.schema';
+import { displayName } from '../users/display-name';
 
 const CHAT_USER_FIELDS = {
   firstName: 1,
@@ -977,8 +978,4 @@ export class ChatService {
       avatar: user?.avatar ?? null,
     };
   }
-}
-
-function displayName(user: ChatUser): string {
-  return `${user.firstName} ${user.lastName}`.trim() || user.userName;
 }

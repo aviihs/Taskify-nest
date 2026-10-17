@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { ClientSession, FilterQuery, Model } from 'mongoose';
+import { ClientSession, FilterQuery, Model, Types } from 'mongoose';
 import { canManageRole, Permission } from '../common/authorization/permissions';
 import { TransactionRunner } from '../common/database/transaction-runner';
 import { DomainEventPublisher } from '../common/events/domain-event-publisher';
@@ -30,11 +30,23 @@ import {
   InvitationStatus,
   WorkspaceInvitation,
 } from './schemas/invitation.schema';
+import { displayName } from '../users/display-name';
 
 export const INVITATION_TTL_DAYS = 7;
 const INVITEE_SEARCH_LIMIT = 5;
 
 export type InviteeCandidate = PublicUser & { inviteStatus: InviteeStatus };
+
+/** An invitation as its invitee sees it, whatever its status. */
+export interface MyInvitationView {
+  _id: string;
+  status: InvitationStatus;
+  role: string;
+  /** Null once the workspace was deleted. */
+  workspace: { _id: string; name: string } | null;
+  /** Whether the invitee is an active member of the workspace now. */
+  isMember: boolean;
+}
 
 @Injectable()
 export class InvitationsService {
@@ -114,9 +126,7 @@ export class InvitationsService {
       email: invitation.email,
       role: invitation.role,
       workspaceName: access.workspace.name,
-      inviterName: inviter
-        ? `${inviter.firstName} ${inviter.lastName}`
-        : 'A teammate',
+      inviterName: inviter ? displayName(inviter, 'A teammate') : 'A teammate',
       inviteeUserId: invitee ? String(invitee._id) : null,
     });
     return invitation;
@@ -235,6 +245,40 @@ export class InvitationsService {
     }
     const invitee = await this.users.findByEmail(cancelled.email);
     this.publishClosed('invitation.cancelled', actorId, cancelled, invitee);
+  }
+
+  /**
+   * One invitation addressed to the caller, in any status: what became of
+   * it and whether they're in that workspace now. Lets a notification about
+   * an invitation open something meaningful after it was answered.
+   */
+  async findMine(
+    userId: string,
+    invitationId: string,
+  ): Promise<MyInvitationView> {
+    const email = await this.emailOf(userId);
+    await this.expireStale({ email });
+    const invitation = await this.invitationModel
+      .findOne({ _id: invitationId, email })
+      .populate({ path: 'workspace', select: 'name deletedAt' })
+      .lean<InvitationRecord>()
+      .exec();
+    if (!invitation) throw new NotFoundException('Invitation not found');
+    const workspace = invitation.workspace as unknown as {
+      _id: Types.ObjectId;
+      name: string;
+      deletedAt?: Date | null;
+    } | null;
+    const live = workspace && !workspace.deletedAt ? workspace : null;
+    return {
+      _id: String(invitation._id),
+      status: invitation.status,
+      role: invitation.role,
+      workspace: live ? { _id: String(live._id), name: live.name } : null,
+      isMember: live
+        ? await this.access.isActiveMember(live._id, userId)
+        : false,
+    };
   }
 
   /** Pending invitations addressed to the caller's (verified) email. */

@@ -76,6 +76,31 @@ describe('Account security (e2e)', () => {
     });
   });
 
+  describe('name', () => {
+    it('updates first and last name, trimmed, and rejects blanks', async () => {
+      const user = await ctx.signUp('rename');
+      const updated = await ctx
+        .as(user)
+        .put('/auth/profile')
+        .send({ firstName: '  Sita ', lastName: 'Sharma' })
+        .expect(200);
+      expect(updated.body.data).toMatchObject({
+        firstName: 'Sita',
+        lastName: 'Sharma',
+      });
+      await ctx
+        .as(user)
+        .put('/auth/profile')
+        .send({ firstName: '   ' })
+        .expect(400);
+      await ctx
+        .as(user)
+        .put('/auth/profile')
+        .send({ lastName: 'x'.repeat(51) })
+        .expect(400);
+    });
+  });
+
   describe('avatar', () => {
     let user: TestUser;
     let victimFile: string;

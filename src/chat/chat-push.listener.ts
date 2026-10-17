@@ -3,6 +3,7 @@ import { OnDomainEvent } from '../common/events/on-domain-event.decorator';
 import { PushService } from '../notifications/push/push.service';
 import { CHAT_MESSAGE_CREATED, ChatMessageCreatedEvent } from './chat-events';
 import { PresenceService } from './presence.service';
+import { displayName } from '../users/display-name';
 
 const PUSH_PREVIEW_LENGTH = 120;
 
@@ -23,7 +24,7 @@ export class ChatPushListener {
   async onMessage(event: ChatMessageCreatedEvent): Promise<void> {
     if (!this.push.enabled) return;
     const { sender, message } = event;
-    const name = `${sender.firstName} ${sender.lastName}`.trim();
+    const name = displayName(sender);
     const title = event.conversationName
       ? `${name || 'Someone'} · ${event.conversationName}`
       : name;

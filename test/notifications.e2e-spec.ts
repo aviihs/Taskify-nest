@@ -1,4 +1,9 @@
-import { createTestApp, TestContext, TestUser } from './utils/test-app';
+import {
+  createTestApp,
+  eventually,
+  TestContext,
+  TestUser,
+} from './utils/test-app';
 
 describe('Notifications inbox (e2e)', () => {
   let ctx: TestContext;
@@ -27,6 +32,8 @@ describe('Notifications inbox (e2e)', () => {
         .send({ email: invitee.email, role: 'MEMBER' })
         .expect(201);
     }
+    // Notifications are written by an async listener after the response.
+    await eventually(async () => expect(await inbox(invitee)).toHaveLength(2));
   });
   afterAll(() => ctx.close());
 

@@ -36,6 +36,7 @@ import {
   FirebaseTokenVerifier,
 } from './social/firebase-token.verifier';
 import { UserIdentity } from './social/user-identity.schema';
+import { LAST_NAME_PLACEHOLDER } from '../users/display-name';
 
 const BCRYPT_ROUNDS = 12;
 const ACCESS_TOKEN_TTL = '1h';
@@ -338,6 +339,8 @@ export class AuthService {
 
     const updates = Object.fromEntries(
       Object.entries({
+        firstName: dto.firstName,
+        lastName: dto.lastName,
         avatar: avatarChanged ? dto.avatar : undefined,
         dob: dto.dob,
         gender: dto.gender,
@@ -572,7 +575,7 @@ function splitName(
   const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
   const firstName = parts[0] ?? email.split('@')[0];
   // lastName is required by the schema; users can edit it in their profile.
-  const lastName = parts.slice(1).join(' ') || '-';
+  const lastName = parts.slice(1).join(' ') || LAST_NAME_PLACEHOLDER;
   return {
     firstName: firstName.slice(0, NAME_MAX),
     lastName: lastName.slice(0, NAME_MAX),
