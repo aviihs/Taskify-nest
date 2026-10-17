@@ -113,6 +113,50 @@ describe('Workspaces, membership & invitations (e2e)', () => {
     await ctx.as(dave).post(`/invitations/${inv.body._id}/accept`).expect(409);
   });
 
+  it('shows an invitee what became of their invitation', async () => {
+    const erin = await ctx.signUp('erin');
+    const status = (id: string, user: TestUser = erin) =>
+      ctx.as(user).get(`/invitations/${id}`);
+
+    const accepted = await invite(alice, acme, erin.email, 'MEMBER').expect(
+      201,
+    );
+    expect((await status(accepted.body._id).expect(200)).body).toEqual({
+      _id: accepted.body._id,
+      status: 'PENDING',
+      role: 'MEMBER',
+      workspace: { _id: acme, name: 'Acme' },
+      isMember: false,
+    });
+    // Only the invitee can look it up.
+    await status(accepted.body._id, bob).expect(404);
+
+    await ctx.as(erin).post(`/invitations/${accepted.body._id}/accept`);
+    expect((await status(accepted.body._id).expect(200)).body).toMatchObject({
+      status: 'ACCEPTED',
+      isMember: true,
+    });
+
+    // Declined: answered, and not a member.
+    const other = (
+      await ctx.as(bob).post('/workspaces').send({ name: 'Other' }).expect(201)
+    ).body._id;
+    const declined = await invite(bob, other, erin.email, 'VIEWER').expect(201);
+    await ctx.as(erin).post(`/invitations/${declined.body._id}/decline`);
+    expect((await status(declined.body._id).expect(200)).body).toMatchObject({
+      status: 'DECLINED',
+      workspace: { _id: other, name: 'Other' },
+      isMember: false,
+    });
+
+    // The workspace is gone: no workspace to point at.
+    await ctx.as(bob).delete(`/workspaces/${other}`).expect(204);
+    expect(
+      (await status(declined.body._id).expect(200)).body.workspace,
+    ).toBeNull();
+    await status('5f0000000000000000000000').expect(404);
+  });
+
   it('supports inviting an email that registers later', async () => {
     const email = `newcomer.${Date.now()}@taskify.test`;
     await invite(alice, acme, email, 'MEMBER').expect(201);

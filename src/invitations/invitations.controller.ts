@@ -78,6 +78,18 @@ export class InvitationsController {
     return this.invitations.listMine(user.id);
   }
 
+  @Get('invitations/:invitationId')
+  @ApiOperation({
+    summary:
+      'One invitation sent to my email, in any status, and whether I am in its workspace',
+  })
+  findMine(
+    @CurrentUser() user: AuthUser,
+    @Param('invitationId', ParseObjectIdPipe) invitationId: string,
+  ) {
+    return this.invitations.findMine(user.id, invitationId);
+  }
+
   @Post('invitations/:invitationId/accept')
   @ApiOperation({ summary: 'Accept an invitation and join the workspace' })
   accept(

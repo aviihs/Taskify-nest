@@ -25,7 +25,8 @@
     "migrate:prod": "node dist/database/migrate",
     "db:check": "ts-node src/database/db-check.ts",
     "db:check:prod": "node dist/database/db-check",
-    "db:reset-dev": "ts-node src/database/dev-reset.ts"
+    "db:reset-dev": "ts-node src/database/dev-reset.ts",
+    "qa:otp-server": "ts-node src/database/qa-otp-server.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
