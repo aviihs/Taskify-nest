@@ -916,10 +916,12 @@ export class ChatService {
     workspaceId: Types.ObjectId,
     userId: string,
   ): Promise<boolean> {
-    return (
-      (await this.workspaceAccess.isActiveMember(workspaceId, userId)) &&
-      (await this.workspaceAccess.workspaceExists(workspaceId))
-    );
+    // Independent checks: one round trip instead of two.
+    const [member, exists] = await Promise.all([
+      this.workspaceAccess.isActiveMember(workspaceId, userId),
+      this.workspaceAccess.workspaceExists(workspaceId),
+    ]);
+    return member && exists;
   }
 
   private memberIds(
