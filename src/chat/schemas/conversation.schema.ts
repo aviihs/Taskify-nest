@@ -109,4 +109,5 @@ export const ConversationSchema = SchemaFactory.createForClass(Conversation);
 
 ConversationSchema.index({ directKey: 1 }, { unique: true });
 // Inbox: my conversations, most recent first.
-ConversationSchema.index({ 'members.user': 1, lastMessageAt: -1 });
+// Matches the inbox sort exactly, so MongoDB reads it in order instead of sorting in memory.
+ConversationSchema.index({ 'members.user': 1, lastMessageAt: -1, _id: -1 });

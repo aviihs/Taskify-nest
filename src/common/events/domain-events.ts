@@ -59,6 +59,20 @@ export interface InvitationClosedEvent extends BaseEvent {
   email: string;
   /** Set when the invitee has an account, so their app can refresh. */
   inviteeUserId: string | null;
+  /** Who sent the invitation, so they can hear how it was answered. */
+  invitedById: string;
+  workspaceName: string;
+  inviteeName: string;
+}
+
+/** The invitee accepted and is now a member. */
+export interface InvitationAcceptedEvent extends BaseEvent {
+  type: 'invitation.accepted';
+  email: string;
+  inviteeUserId: string;
+  invitedById: string;
+  workspaceName: string;
+  inviteeName: string;
 }
 
 export interface ProjectCreatedEvent extends BaseEvent {
@@ -157,6 +171,7 @@ export type DomainEvent =
   | MemberStatusChangedEvent
   | InvitationCreatedEvent
   | InvitationClosedEvent
+  | InvitationAcceptedEvent
   | ProjectCreatedEvent
   | ProjectUpdatedEvent
   | ProjectDeletedEvent
@@ -195,6 +210,7 @@ export const ALL_DOMAIN_EVENTS: DomainEventType[] = [
   'workspace.member.role_changed',
   'workspace.member.status_changed',
   'invitation.created',
+  'invitation.accepted',
   'invitation.declined',
   'invitation.cancelled',
   'project.created',

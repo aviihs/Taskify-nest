@@ -102,19 +102,20 @@ export class PresenceService implements OnModuleDestroy {
     userIds: Array<string | Types.ObjectId>,
   ): Promise<Set<string>> {
     if (!userIds.length) return new Set();
-    const connected: Types.ObjectId[] = await this.sessionModel
-      .find({
-        user: { $in: userIds.map(toObjectId) },
-        lastSeenAt: { $gt: this.staleBefore() },
-      })
-      .distinct('user')
-      .exec();
+    const ids = userIds.map(toObjectId);
+    // Independent lookups, run together: this sits on every inbox load.
+    const [connected, hidden] = await Promise.all([
+      this.sessionModel
+        .find({ user: { $in: ids }, lastSeenAt: { $gt: this.staleBefore() } })
+        .distinct('user')
+        .exec() as Promise<Types.ObjectId[]>,
+      this.userModel
+        .find({ _id: { $in: ids }, availability: 'OFFLINE' })
+        .select('_id')
+        .lean<AvailabilityDoc[]>()
+        .exec(),
+    ]);
     if (!connected.length) return new Set();
-    const hidden = await this.userModel
-      .find({ _id: { $in: connected }, availability: 'OFFLINE' })
-      .select('_id')
-      .lean<AvailabilityDoc[]>()
-      .exec();
     const hiddenIds = new Set(hidden.map((u) => String(u._id)));
     return new Set(connected.map(String).filter((id) => !hiddenIds.has(id)));
   }

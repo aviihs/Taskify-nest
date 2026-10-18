@@ -111,6 +111,16 @@ export class WorkspaceAccessService {
       .map((m) => ({ workspaceId: m.workspace, role: m.role }));
   }
 
+  /** Name of a live workspace, for messages sent to people who aren't members of it. */
+  async nameOf(workspaceId: string | Types.ObjectId): Promise<string> {
+    const workspace = await this.workspaceModel
+      .findOne({ _id: workspaceId, deletedAt: null })
+      .select('name')
+      .lean<{ name: string }>()
+      .exec();
+    return workspace?.name ?? 'the workspace';
+  }
+
   async workspaceExists(
     workspaceId: string | Types.ObjectId,
     session?: ClientSession,

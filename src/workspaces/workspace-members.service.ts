@@ -20,6 +20,7 @@ import {
 } from '../common/authorization/permissions';
 import { TransactionRunner } from '../common/database/transaction-runner';
 import { DomainEventPublisher } from '../common/events/domain-event-publisher';
+import { PresenceService } from '../chat/presence.service';
 import { pageMeta, Paginated } from '../common/pagination/pagination';
 import { isDuplicateKeyError } from '../common/utils/mongo-errors';
 import {
@@ -46,6 +47,9 @@ export type MemberView = Omit<WorkspaceMemberRecord, 'user'> & {
   user: PublicUser;
 };
 
+/** A listed member plus whether they are online right now (honours "appear offline"). */
+export type MemberListItem = MemberView & { online: boolean };
+
 @Injectable()
 export class WorkspaceMembersService {
   constructor(
@@ -58,13 +62,14 @@ export class WorkspaceMembersService {
     private readonly access: WorkspaceAccessService,
     private readonly events: DomainEventPublisher,
     private readonly tx: TransactionRunner,
+    private readonly presence: PresenceService,
   ) {}
 
   async list(
     userId: string,
     workspaceId: string,
     query: ListMembersQueryDto,
-  ): Promise<Paginated<MemberView>> {
+  ): Promise<Paginated<MemberListItem>> {
     const { workspace } = await this.access.authorize(
       userId,
       workspaceId,
@@ -108,8 +113,14 @@ export class WorkspaceMembersService {
     const [result] = await this.memberModel
       .aggregate<{ items: MemberView[]; total: { count: number }[] }>(pipeline)
       .exec();
+    const online = await this.presence.onlineUserIds(
+      result.items.map((m) => m.user._id),
+    );
     return {
-      items: result.items,
+      items: result.items.map((m) => ({
+        ...m,
+        online: online.has(String(m.user._id)),
+      })),
       meta: pageMeta(query, result.total[0]?.count ?? 0),
     };
   }
