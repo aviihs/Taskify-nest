@@ -16,7 +16,13 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
+import { PresenceService } from '../chat/presence.service';
 import { Response } from 'express';
 import { randomUUID } from 'crypto';
 import { diskStorage } from 'multer';
@@ -49,26 +55,48 @@ const AVATAR_MIME_TYPES = [
 @UseGuards(RolesGuard)
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly presence: PresenceService,
+  ) {}
 
   @Roles(PlatformRole.ADMIN)
   @Get()
   @ApiOperation({ summary: 'List all users (platform admin)' })
-  list(
+  @ApiQuery({
+    name: 'online',
+    required: false,
+    description: 'true: only users with the app open right now',
+  })
+  async list(
     @Query('search') search?: string,
     @Query('role') role?: string,
     @Query('isActive') isActive?: string,
+    @Query('online') online?: string,
     @Query('page') page = '1',
     @Query('limit') limit = '10',
   ) {
-    return this.usersService.listUsers({
+    const onlineIds =
+      online === 'true' ? [...(await this.presence.connectedUserIds())] : null;
+    const result = await this.usersService.listUsers({
       search,
       role,
       isActive:
         isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+      ids: onlineIds ?? undefined,
       page: Number(page),
       limit: Math.min(Number(limit) || 10, 100),
     });
+    const connected = await this.presence.connectedUserIds(
+      result.items.map((u) => u._id),
+    );
+    return {
+      ...result,
+      items: result.items.map((u) => ({
+        ...u,
+        online: connected.has(String(u._id)),
+      })),
+    };
   }
 
   @Get('me')

@@ -120,6 +120,24 @@ export class PresenceService implements OnModuleDestroy {
     return new Set(connected.map(String).filter((id) => !hiddenIds.has(id)));
   }
 
+  /**
+   * Everyone with a live socket right now, or just those among [userIds].
+   * Raw connectivity: ignores "appear offline", which hides a person from
+   * teammates in chat, not from the platform's own usage statistics.
+   */
+  async connectedUserIds(
+    userIds?: Array<string | Types.ObjectId>,
+  ): Promise<Set<string>> {
+    const connected: Types.ObjectId[] = await this.sessionModel
+      .find({
+        ...(userIds && { user: { $in: userIds.map(toObjectId) } }),
+        lastSeenAt: { $gt: this.staleBefore() },
+      })
+      .distinct('user')
+      .exec();
+    return new Set(connected.map(String));
+  }
+
   async isOnline(userId: string): Promise<boolean> {
     return (await this.onlineUserIds([userId])).has(userId);
   }
