@@ -23,6 +23,7 @@ import {
   NEPALI_PHONE_PATTERN,
   normalizePhone,
 } from '../phone';
+import { IsMinAge } from '../min-age';
 import { Gender } from './user.dto';
 
 export class RegisterDto {
@@ -75,6 +76,7 @@ export class RegisterDto {
   )
   @IsOptional()
   @IsDateString()
+  @IsMinAge()
   dob?: string;
 
   @ApiPropertyOptional({
