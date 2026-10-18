@@ -161,6 +161,8 @@ export class UsersService {
     search?: string;
     role?: string;
     isActive?: boolean;
+    /** Restrict to these accounts (e.g. the ones online right now). */
+    ids?: string[];
     page?: number;
     limit?: number;
   }) {
@@ -174,6 +176,9 @@ export class UsersService {
       ...(regex && { $or: [{ email: regex }, { userName: regex }] }),
       ...(query.role && { role: query.role }),
       ...(typeof query.isActive === 'boolean' && { isActive: query.isActive }),
+      ...(query.ids && {
+        _id: { $in: query.ids.map((id) => new Types.ObjectId(id)) },
+      }),
     };
 
     const [items, total] = await Promise.all([
