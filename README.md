@@ -40,7 +40,8 @@ bun run start:dev
 | `RESEND_API_KEY`, `EMAIL_FROM` | For email | OTP, password reset and invitation emails |
 | `APP_URL` | No | Web app URL used in invitation emails |
 | `CORS_ORIGINS` | No | Comma-separated allowed origins; empty allows the request origin |
-| `UPLOAD_DIR` | No | Where avatars and attachments are stored; defaults to `./uploads` |
+| `UPLOAD_DIR` | No | Where avatars and attachments are stored; defaults to `./uploads`. The folder is git-ignored: uploads are personal data and must never be committed |
+| `ALLOW_REMOTE_DB` | No | Outside `NODE_ENV=production` the server refuses to start when `MONGO_URI` points at a remote host. Set to `true` only for a deliberately shared staging database |
 | `ANTHROPIC_API_KEY` | For AI | Enables the AI task breakdown; without it those endpoints return 503 |
 
 The app refuses to start if `MONGO_URI` or `JWT_SECRET` is missing.
