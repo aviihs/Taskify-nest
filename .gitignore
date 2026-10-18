@@ -41,5 +41,8 @@ HEALTH_MODULE_README.md
 !.vscode/launch.json
 !.vscode/extensions.json
 
+# User-uploaded files (avatars, attachments): personal data, never commit
+/uploads/
+
 # Firebase service account key (push notifications)
 firebase-service-account*.json
