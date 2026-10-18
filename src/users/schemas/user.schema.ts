@@ -9,6 +9,9 @@ const SECRET_FIELDS = [
   'passwordResetOtpExpiresAt',
   'emailOtp',
   'emailOtpExpiresAt',
+  'pendingPhone',
+  'phoneOtp',
+  'phoneOtpExpiresAt',
   '__v',
 ] as const;
 
@@ -119,6 +122,22 @@ export const UserSchema = new mongoose.Schema(
     },
 
     emailOtpExpiresAt: {
+      type: Date,
+      default: null,
+    },
+
+    /** A new phone number waiting for its emailed code before it replaces `phone`. */
+    pendingPhone: {
+      type: String,
+      default: null,
+    },
+
+    phoneOtp: {
+      type: String,
+      default: null,
+    },
+
+    phoneOtpExpiresAt: {
       type: Date,
       default: null,
     },

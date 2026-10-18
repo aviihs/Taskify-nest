@@ -23,6 +23,7 @@ import { RefreshTokenDto } from '../users/dtos/refresh-token.dto';
 import { RegisterDto } from '../users/dtos/register.dtos';
 import { ResendOtpDto } from '../users/dtos/resend-otp.dto';
 import { ResetPasswordDto } from '../users/dtos/reset-password.dto';
+import { RequestPhoneOtpDto } from '../users/dtos/request-phone-otp.dto';
 import { UpdateProfileDto } from '../users/dtos/update-profile.dto';
 import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
 import { AuthService } from './auth.service';
@@ -301,6 +302,31 @@ export class AuthController {
   })
   resendOtp(@Body() dto: ResendOtpDto) {
     return this.authService.resendOtp(dto);
+  }
+
+  @CredentialThrottle()
+  @Post('phone/request-otp')
+  @ApiOperation({
+    summary: 'Email a code to confirm a new phone number',
+    description:
+      'Step one of changing the phone number. Send the code back as `phoneOtp` in PUT /auth/profile.',
+  })
+  @ApiBody({ type: RequestPhoneOtpDto })
+  @ApiOkResponse({
+    description: 'Code emailed to the account address',
+    schema: {
+      example: {
+        success: true,
+        message: 'Verification code sent to your email',
+        data: { expiresInMinutes: 5 },
+      },
+    },
+  })
+  requestPhoneOtp(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: RequestPhoneOtpDto,
+  ) {
+    return this.authService.requestPhoneOtp(user, dto);
   }
 
   @Put('profile')

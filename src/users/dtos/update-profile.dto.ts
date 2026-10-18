@@ -14,6 +14,7 @@ import {
   NEPALI_PHONE_PATTERN,
   normalizePhone,
 } from '../phone';
+import { IsMinAge } from '../min-age';
 import { Gender } from './user.dto';
 
 const trim = ({ value }: { value: unknown }) =>
@@ -51,6 +52,7 @@ export class UpdateProfileDto {
   })
   @IsOptional()
   @IsDateString()
+  @IsMinAge()
   dob?: string;
 
   @ApiPropertyOptional({
@@ -79,4 +81,14 @@ export class UpdateProfileDto {
   @IsOptional()
   @Matches(NEPALI_PHONE_PATTERN, { message: NEPALI_PHONE_MESSAGE })
   phone?: string | null;
+
+  @ApiPropertyOptional({
+    example: '482913',
+    description:
+      'Required when changing to a new phone number: the 6-digit code emailed by POST /auth/phone/request-otp.',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/, { message: 'Verification code must be 6 digits.' })
+  phoneOtp?: string;
 }

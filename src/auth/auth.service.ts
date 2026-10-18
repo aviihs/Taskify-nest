@@ -24,6 +24,7 @@ import { RefreshTokenDto } from '../users/dtos/refresh-token.dto';
 import { RegisterDto } from '../users/dtos/register.dtos';
 import { ResendOtpDto } from '../users/dtos/resend-otp.dto';
 import { ResetPasswordDto } from '../users/dtos/reset-password.dto';
+import { RequestPhoneOtpDto } from '../users/dtos/request-phone-otp.dto';
 import { UpdateProfileDto } from '../users/dtos/update-profile.dto';
 import { Roles } from '../users/dtos/user.dto';
 import { VerifyEmailDto } from '../users/dtos/verify-email.dto';
@@ -43,6 +44,9 @@ const ACCESS_TOKEN_TTL = '1h';
 const REFRESH_TOKEN_TTL = '7d';
 const EMAIL_OTP_TTL_MINUTES = 2;
 const RESET_OTP_TTL_MINUTES = 5;
+const PHONE_OTP_TTL_MINUTES = 5;
+/** Minimum gap between two phone codes, so the inbox is not flooded. */
+const PHONE_OTP_COOLDOWN_SECONDS = 30;
 
 type UserDocument = NonNullable<Awaited<ReturnType<UsersService['findById']>>>;
 
@@ -325,8 +329,74 @@ export class AuthService {
     return { success: true, message: 'OTP sent successfully' };
   }
 
+  /**
+   * Step one of changing the phone number: email a 6-digit code to the
+   * account address. The number is only saved by `updateProfile`, together
+   * with that code.
+   */
+  async requestPhoneOtp(authUser: AuthUser, dto: RequestPhoneOtpDto) {
+    const user = await this.findCurrentUser(authUser);
+    if (String(user.phone ?? '') === dto.phone) {
+      throw new BadRequestException('This is already your phone number');
+    }
+
+    const lastSentAt = user.phoneOtpExpiresAt
+      ? user.phoneOtpExpiresAt.getTime() - PHONE_OTP_TTL_MINUTES * 60 * 1000
+      : 0;
+    if (Date.now() - lastSentAt < PHONE_OTP_COOLDOWN_SECONDS * 1000) {
+      throw new HttpException(
+        `Please wait ${PHONE_OTP_COOLDOWN_SECONDS} seconds before requesting another code`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const otp = generateOtp();
+    await this.usersService.updateUser(user._id, {
+      pendingPhone: dto.phone,
+      phoneOtp: otp,
+      phoneOtpExpiresAt: minutesFromNow(PHONE_OTP_TTL_MINUTES),
+    });
+    await this.sendOtpEmail(user, otp, 'verify-phone');
+
+    return {
+      success: true,
+      message: 'Verification code sent to your email',
+      data: { expiresInMinutes: PHONE_OTP_TTL_MINUTES },
+    };
+  }
+
+  /** A new number needs the emailed code; clearing the number does not. */
+  private checkPhoneOtp(user: UserDocument, dto: UpdateProfileDto): boolean {
+    const changing =
+      dto.phone !== undefined &&
+      dto.phone !== null &&
+      dto.phone !== String(user.phone ?? '');
+    if (!changing) return false;
+
+    if (!dto.phoneOtp) {
+      throw new BadRequestException({
+        code: 'PHONE_OTP_REQUIRED',
+        message:
+          'Verify your new phone number with the code sent to your email.',
+      });
+    }
+    const valid =
+      user.pendingPhone === dto.phone &&
+      user.phoneOtp === dto.phoneOtp &&
+      !!user.phoneOtpExpiresAt &&
+      user.phoneOtpExpiresAt.getTime() > Date.now();
+    if (!valid) {
+      throw new BadRequestException({
+        code: 'PHONE_OTP_INVALID',
+        message: 'Invalid or expired verification code.',
+      });
+    }
+    return true;
+  }
+
   async updateProfile(authUser: AuthUser, dto: UpdateProfileDto) {
     const user = await this.findCurrentUser(authUser);
+    const phoneVerified = this.checkPhoneOtp(user, dto);
     // Clients echo the stored avatar back; anything else must be a URL.
     // Uploaded files are only ever set by POST /users/me/avatar.
     const avatarChanged =
@@ -346,6 +416,10 @@ export class AuthService {
         gender: dto.gender,
         bio: dto.bio,
         phone: dto.phone,
+        // The code is single-use.
+        ...(phoneVerified
+          ? { pendingPhone: null, phoneOtp: null, phoneOtpExpiresAt: null }
+          : {}),
       }).filter(([, value]) => value !== undefined),
     );
     const updatedUser = await this.usersService.updateUser(user._id, updates);
@@ -551,16 +625,17 @@ export class AuthService {
   private async sendOtpEmail(
     user: UserDocument,
     otp: string,
-    purpose: 'verify-email' | 'reset-password',
+    purpose: 'verify-email' | 'reset-password' | 'verify-phone',
   ): Promise<void> {
     const { subject, text, html } = otpEmail({
       firstName: user.firstName,
       otp,
       purpose,
-      expiresInMinutes:
-        purpose === 'verify-email'
-          ? EMAIL_OTP_TTL_MINUTES
-          : RESET_OTP_TTL_MINUTES,
+      expiresInMinutes: {
+        'verify-email': EMAIL_OTP_TTL_MINUTES,
+        'reset-password': RESET_OTP_TTL_MINUTES,
+        'verify-phone': PHONE_OTP_TTL_MINUTES,
+      }[purpose],
     });
     await this.emailService.sendMail(user.email, subject, text, html);
   }

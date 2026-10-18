@@ -165,4 +165,26 @@ export class User {
     description: 'Email OTP expiry time',
   })
   readonly emailOtpExpiresAt?: Date;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    description: 'New phone number awaiting verification',
+  })
+  readonly pendingPhone?: string | null;
+
+  @ApiProperty({
+    example: '123456',
+    required: false,
+    nullable: true,
+    description: 'Phone change OTP (emailed to the account address)',
+  })
+  readonly phoneOtp?: string | null;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    description: 'Phone change OTP expiry time',
+  })
+  readonly phoneOtpExpiresAt?: Date | null;
 }

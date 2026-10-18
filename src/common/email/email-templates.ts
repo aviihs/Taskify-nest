@@ -31,7 +31,7 @@ interface OtpEmailInput {
   firstName: string;
   otp: string;
   expiresInMinutes: number;
-  purpose: 'verify-email' | 'reset-password';
+  purpose: 'verify-email' | 'reset-password' | 'verify-phone';
 }
 
 const OTP_COPY = {
@@ -41,6 +41,14 @@ const OTP_COPY = {
     intro: 'Please use the verification code below to activate your account.',
     ignore:
       'If you did not create a Taskify account, you can safely ignore this email.',
+  },
+  'verify-phone': {
+    subject: 'Confirm Your New Phone Number - Taskify',
+    title: 'Phone Number Verification',
+    intro:
+      'Use the code below to confirm the new phone number on your Taskify account.',
+    ignore:
+      'If you did not try to change your phone number, you can safely ignore this email.',
   },
   'reset-password': {
     subject: 'Password Reset OTP - Taskify',
