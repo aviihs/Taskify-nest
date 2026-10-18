@@ -14,6 +14,7 @@ import {
 import { ChatPushListener } from './chat-push.listener';
 import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
+import { PresenceModule } from './presence.module';
 import { PresenceService } from './presence.service';
 import { ChatMessage, ChatMessageSchema } from './schemas/chat-message.schema';
 import {
@@ -38,9 +39,10 @@ import {
     ]),
     WorkspacesModule,
     NotificationsModule,
+    PresenceModule,
   ],
   controllers: [ChatController],
-  providers: [ChatService, PresenceService, ChatPushListener],
-  exports: [ChatService, PresenceService],
+  providers: [ChatService, ChatPushListener],
+  exports: [ChatService, PresenceModule],
 })
 export class ChatModule {}

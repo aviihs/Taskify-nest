@@ -12,6 +12,7 @@ import {
 } from './schemas/workspace-member.schema';
 import { WorkspaceAccessService } from './workspace-access.service';
 import { WorkspaceMembersService } from './workspace-members.service';
+import { PresenceModule } from '../chat/presence.module';
 import { WorkspacesController } from './workspaces.controller';
 import { WorkspacesService } from './workspaces.service';
 
@@ -24,6 +25,7 @@ import { WorkspacesService } from './workspaces.service';
       { name: ProjectMember.name, schema: ProjectMemberSchema },
       { name: Task.name, schema: TaskSchema },
     ]),
+    PresenceModule,
   ],
   controllers: [WorkspacesController],
   providers: [

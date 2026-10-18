@@ -244,7 +244,12 @@ export class InvitationsService {
       throw new NotFoundException('Pending invitation not found');
     }
     const invitee = await this.users.findByEmail(cancelled.email);
-    this.publishClosed('invitation.cancelled', actorId, cancelled, invitee);
+    this.publishClosed('invitation.cancelled', actorId, cancelled, invitee, {
+      workspaceName: workspace.name,
+      inviteeName: invitee
+        ? displayName(invitee, cancelled.email)
+        : cancelled.email,
+    });
   }
 
   /**
@@ -330,6 +335,21 @@ export class InvitationsService {
     if (!outcome.member) {
       throw new GoneException('This invitation is no longer valid');
     }
+    const [workspaceName, invitee] = await Promise.all([
+      this.access.nameOf(outcome.invitation.workspace),
+      this.users.findById(userId),
+    ]);
+    this.events.publish({
+      type: 'invitation.accepted',
+      actorId: userId,
+      workspaceId: String(outcome.invitation.workspace),
+      entityId: String(outcome.invitation._id),
+      email,
+      inviteeUserId: userId,
+      invitedById: String(outcome.invitation.invitedBy),
+      workspaceName,
+      inviteeName: invitee ? displayName(invitee, email) : email,
+    });
     this.events.publish({
       type: 'workspace.member.joined',
       actorId: userId,
@@ -349,9 +369,20 @@ export class InvitationsService {
       InvitationStatus.DECLINED,
     );
     if (!declined) return this.rejectUnclaimable(email, invitationId);
-    this.publishClosed('invitation.declined', userId, declined, {
-      _id: userId,
-    });
+    const [workspaceName, invitee] = await Promise.all([
+      this.access.nameOf(declined.workspace),
+      this.users.findById(userId),
+    ]);
+    this.publishClosed(
+      'invitation.declined',
+      userId,
+      declined,
+      { _id: userId },
+      {
+        workspaceName,
+        inviteeName: invitee ? displayName(invitee, email) : email,
+      },
+    );
   }
 
   /** Lets both sides (inviter's workspace, invitee's app) refresh live. */
@@ -360,6 +391,7 @@ export class InvitationsService {
     actorId: string,
     invitation: InvitationRecord,
     invitee: { _id: unknown } | null,
+    names: { workspaceName: string; inviteeName: string },
   ): void {
     this.events.publish({
       type,
@@ -368,6 +400,8 @@ export class InvitationsService {
       entityId: String(invitation._id),
       email: invitation.email,
       inviteeUserId: invitee ? String(invitee._id) : null,
+      invitedById: String(invitation.invitedBy),
+      ...names,
     });
   }
 

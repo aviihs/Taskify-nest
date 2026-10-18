@@ -14,6 +14,8 @@ const TITLES: Record<NotificationType, string> = {
   [NotificationType.COMMENT_ADDED]: 'New comment',
   [NotificationType.MENTIONED]: 'You were mentioned',
   [NotificationType.WORKSPACE_INVITATION]: 'Workspace invitation',
+  [NotificationType.INVITATION_ACCEPTED]: 'Invitation accepted',
+  [NotificationType.INVITATION_DECLINED]: 'Invitation declined',
   [NotificationType.PROJECT_MEMBER_ADDED]: 'Added to project',
   [NotificationType.NOTE_REMINDER]: 'Note reminder',
 };

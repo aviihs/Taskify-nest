@@ -4,6 +4,8 @@ import { invitationEmail } from '../common/email/email-templates';
 import { EmailService } from '../common/email/email.service';
 import {
   CommentCreatedEvent,
+  InvitationAcceptedEvent,
+  InvitationClosedEvent,
   InvitationCreatedEvent,
   ProjectMemberAddedEvent,
   TaskCreatedEvent,
@@ -139,5 +141,34 @@ export class NotificationRulesListener {
       acceptUrl: `${env.appUrl}/invitations`,
     });
     await this.email.sendMail(event.email, subject, text, html);
+  }
+
+  @OnDomainEvent('invitation.accepted')
+  async onInvitationAccepted(event: InvitationAcceptedEvent): Promise<void> {
+    await this.notifications.notify({
+      recipientIds: [event.invitedById],
+      type: NotificationType.INVITATION_ACCEPTED,
+      message: `${event.inviteeName} accepted your invitation to join ${event.workspaceName}`,
+      actorId: event.actorId,
+      workspaceId: event.workspaceId,
+      entityType: 'workspace',
+      entityId: event.workspaceId,
+      link: `/workspaces/${event.workspaceId}`,
+    });
+  }
+
+  /** Cancelling is the inviter's own action, so only a decline is news. */
+  @OnDomainEvent('invitation.declined')
+  async onInvitationDeclined(event: InvitationClosedEvent): Promise<void> {
+    await this.notifications.notify({
+      recipientIds: [event.invitedById],
+      type: NotificationType.INVITATION_DECLINED,
+      message: `${event.inviteeName} declined your invitation to join ${event.workspaceName}`,
+      actorId: event.actorId,
+      workspaceId: event.workspaceId,
+      entityType: 'workspace',
+      entityId: event.workspaceId,
+      link: `/workspaces/${event.workspaceId}`,
+    });
   }
 }
