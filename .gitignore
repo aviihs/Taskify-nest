@@ -46,3 +46,6 @@ HEALTH_MODULE_README.md
 
 # Firebase service account key (push notifications)
 firebase-service-account*.json
+
+# Local dev database (scripts/dev-db.mjs)
+/.mongo-dev
