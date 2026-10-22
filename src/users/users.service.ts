@@ -157,6 +157,52 @@ export class UsersService {
     }
   }
 
+  /**
+   * Closes an account and frees its email, username and phone, so the same
+   * person can sign up again. The record stays (tasks, comments and chats
+   * still point at it) under placeholder identifiers that can never be
+   * signed in to.
+   */
+  async closeAccount(userId: string | Types.ObjectId) {
+    const id = String(userId);
+    return await this.usersModel.findByIdAndUpdate(
+      userId,
+      {
+        deletedAt: new Date(),
+        isActive: false,
+        email: `deleted-${id}@deleted.taskify.invalid`,
+        userName: `deleted_${id}`,
+        phone: null,
+        pendingPhone: null,
+        refreshTokens: [],
+        passwordResetOtp: null,
+        emailOtp: null,
+        phoneOtp: null,
+      },
+      { new: true },
+    );
+  }
+
+  /**
+   * Accounts closed before {@link closeAccount} freed their identifiers still
+   * hold them; release any such email or username before it is reused.
+   */
+  async releaseClosedAccounts(identifiers: {
+    email?: string;
+    userName?: string;
+  }) {
+    const holders = [
+      ...(identifiers.email ? [{ email: identifiers.email }] : []),
+      ...(identifiers.userName ? [{ userName: identifiers.userName }] : []),
+    ];
+    if (!holders.length) return;
+    const closed = await this.usersModel
+      .find({ deletedAt: { $ne: null }, $or: holders })
+      .select('_id')
+      .lean();
+    await Promise.all(closed.map((user) => this.closeAccount(user._id)));
+  }
+
   async listUsers(query: {
     search?: string;
     role?: string;

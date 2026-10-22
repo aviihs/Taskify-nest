@@ -52,7 +52,8 @@ Use `bun run <script>`: plain `bun test` and `bun build` start Bun's own test ru
 
 | Command | What it does |
 | --- | --- |
-| `bun run start:dev` | Run with hot reload |
+| `bun run start:dev` | Start the local MongoDB if needed, then run with hot reload |
+| `bun run db:dev` / `bun run db:stop` | Start or stop the local replica-set MongoDB (data in `.mongo-dev/`, port from `MONGO_URI`) |
 | `bun run build` / `bun run start:prod` | Build to `dist/` and run it |
 | `bun run lint` | ESLint + Prettier (auto-fix) |
 | `bun run test` | Unit tests |

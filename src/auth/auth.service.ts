@@ -5,7 +5,6 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
@@ -88,6 +87,7 @@ export class AuthService {
   async register(dto: RegisterDto) {
     const email = normalizeEmail(dto.email);
     const userName = dto.userName.trim().toLowerCase();
+    await this.usersService.releaseClosedAccounts({ email, userName });
 
     if (await this.usersService.findByEmail(email)) {
       throw new ConflictException('Email already exists');
@@ -279,11 +279,10 @@ export class AuthService {
 
   async deleteAccount(authUser: AuthUser) {
     const user = await this.findCurrentUser(authUser);
-    await this.usersService.updateUser(user._id, {
-      deletedAt: new Date(),
-      isActive: false,
-      refreshTokens: [],
-    });
+    // Frees the email and username for a new sign-up, and unlinks Google /
+    // GitHub so they start a fresh account instead of a closed one.
+    await this.usersService.closeAccount(user._id);
+    await this.identityModel.deleteMany({ user: user._id }).exec();
 
     return {
       message: 'Account deleted successfully',
@@ -503,7 +502,10 @@ export class AuthService {
     if (!link) return null;
     const user = await this.usersService.findById(link.user);
     if (!user) {
-      throw new UnauthorizedException('This account is no longer available.');
+      // The account was closed: forget the link so this sign-in starts a
+      // new account.
+      await this.identityModel.deleteOne({ firebaseUid: uid }).exec();
+      return null;
     }
     return user;
   }
@@ -514,6 +516,7 @@ export class AuthService {
     email: string,
   ): Promise<UserDocument> {
     const { firstName, lastName } = splitName(identity.name, email);
+    await this.usersService.releaseClosedAccounts({ email });
     const userName = await this.availableUserName(email);
     // Social accounts have no usable password until the user sets one
     // through "forgot password".
