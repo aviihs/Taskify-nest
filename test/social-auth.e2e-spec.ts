@@ -255,4 +255,63 @@ describe('Social auth via Firebase (e2e)', () => {
       .expect(201);
     expect(res.body.accessToken).toEqual(expect.any(String));
   });
+  describe('after deleting an account', () => {
+    const register = (email: string, userName: string) =>
+      auth.register({
+        firstName: 'Again',
+        lastName: 'Tester',
+        email,
+        userName,
+        password: 'Password@123',
+      });
+
+    it('frees the email and username for a new sign-up', async () => {
+      const user = await ctx.signUp('closer');
+      await ctx.as(user).delete('/auth/account').expect(200);
+
+      const closed = await users.findById(user.id).lean();
+      expect(closed?.isActive).toBe(false);
+      expect(closed?.email).not.toBe(user.email);
+
+      const again = await register(user.email, user.userName);
+      expect(String(again.data._id)).not.toBe(user.id);
+      expect(await users.countDocuments({ email: user.email })).toBe(1);
+
+      // The new account can reset its password.
+      await expect(
+        auth.forgotPassword({ email: user.email }),
+      ).resolves.toBeDefined();
+    });
+
+    it('frees identifiers of accounts closed before this fix', async () => {
+      const user = await ctx.signUp('legacy');
+      // What deleting used to do: mark the account, keep its identifiers.
+      await users.updateOne(
+        { _id: user.id },
+        { $set: { deletedAt: new Date(), isActive: false } },
+      );
+
+      await expect(register(user.email, user.userName)).resolves.toBeDefined();
+      expect(await users.countDocuments({ email: user.email })).toBe(1);
+    });
+
+    it('lets the same Google account start a fresh Taskify account', async () => {
+      const uid = `uid-${randomUUID()}`;
+      const first = await auth.firebaseLogin({
+        idToken: firebase.issue({ uid }),
+      });
+      await ctx
+        .http()
+        .delete('/auth/account')
+        .set('Authorization', `Bearer ${first.accessToken}`)
+        .expect(200);
+
+      const second = await auth.firebaseLogin({
+        idToken: firebase.issue({ uid }),
+      });
+      expect(String(second.user._id)).not.toBe(String(first.user._id));
+      expect(second.user.email).toBe(first.user.email);
+      expect(await identities.countDocuments({ firebaseUid: uid })).toBe(1);
+    });
+  });
 });
